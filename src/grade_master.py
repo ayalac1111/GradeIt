@@ -30,6 +30,7 @@ def convert_answer_key_to_yaml(answer_key_path, output_path):
         "course": "NONE",
         "lab": "NONE",
         "professor": "NONE",
+        "files": "NONE",
         "tasks": []
     }
     tasks = []
@@ -38,7 +39,7 @@ def convert_answer_key_to_yaml(answer_key_path, output_path):
     try:
         with open(answer_key_path, 'r') as file:
             # Read the first three lines for course, lab, and professor
-            for _ in range(3):
+            for _ in range(4):
                 line = file.readline()
                 if not line:
                     break
@@ -49,6 +50,8 @@ def convert_answer_key_to_yaml(answer_key_path, output_path):
                     result["lab"] = value
                 elif keyword == "PROFESSOR":
                     result["professor"] = value
+                elif keyword == "FILES":
+                    result["files"] = value
 
             logging.debug(f"Initial course, lab, professor: {result}")
 
@@ -98,6 +101,55 @@ def convert_answer_key_to_yaml(answer_key_path, output_path):
     except Exception as e:
         logging.error(f"An error occurred: {e}")
 
+import os
+import csv
+import logging
+
+def read_student_files(username, file_name, data_directory):
+    """
+    Reads the specific file for a student.
+
+    Args:
+        username (str): The username of the student.
+        file_name (str): The name of the file to read.
+        data_directory (str): The directory where student files are located.
+
+    Returns:
+        str: The contents of the student's file.
+    """
+
+    filename = f"{username}-{file_name}"
+    logging.debug(f"Reading {username} file: {filename}")
+
+    try:
+        with open(os.path.join(data_directory, filename), 'r') as file:
+            student_data = file.read()
+    except FileNotFoundError:
+        logging.error(f"Configuration file not found: {filename}")
+        student_data = ""
+
+    logging.debug(f"{username} data for {filename}:  {student_data}")
+
+    return student_data
+
+def load_students(students_file):
+    """
+    Loads student data from a CSV file.
+
+    Args:
+        students_file (str): The path to the students CSV file.
+
+    Returns:
+        list: A list of dictionaries with 'username' and 'uid'.
+    """
+    students = []
+    with open(students_file, 'r') as file:
+        csv_reader = csv.reader(file)
+        for row in csv_reader:
+            username = row[0]
+            uid = row[1] if len(row) > 1 else 'NONE'
+            students.append({'username': username, 'uid': uid})
+    return students
 
 
 def main():
@@ -109,7 +161,7 @@ def main():
     args = parser.parse_args()
 
     # Set up logging
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
     key_dir = args.key_dir
     data_dir = args.data_dir
@@ -138,6 +190,27 @@ def main():
     answer_key_path = os.path.join(key_dir, 'answer_key.txt')
     output_path = os.path.join(key_dir, 'grading_scheme.yaml')
     convert_answer_key_to_yaml(answer_key_path, output_path)
+
+    # Load grading scheme
+    with open(output_path, 'r') as yamlfile:
+        grading_scheme = yaml.safe_load(yamlfile)
+
+    # Load students
+    students_file = os.path.join(key_dir, 'students.csv')
+    students = load_students(students_file)
+
+    # Read and process student files
+    file_name = grading_scheme.get("files")
+    if file_name == "NONE":
+        logging.error("No FILES keyword found in the answer_key.")
+        sys.exit(1)
+
+    for student in students:
+        username = student['username']
+        student_data = read_student_files(username, file_name, data_dir)
+        # Process the student_data as needed
+        # For now, we'll just log it
+        logging.info(f"Data for student {username}: {student_data}")
 
 if __name__ == "__main__":
     main()
