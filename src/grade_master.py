@@ -151,6 +151,66 @@ def load_students(students_file):
             students.append({'username': username, 'uid': uid})
     return students
 
+def match_line(student_line, answer_key_line):
+    """
+    Matches a student's line with the answer key line using regular expressions.
+
+    Args:
+        student_line (str): The line from the student's data.
+        answer_key_line (str): The regular expression from the answer key.
+
+    Returns:
+        bool: True if the student's line matches the answer key line, False otherwise.
+    """
+    return re.search(answer_key_line, student_line) is not None
+
+def evaluate_student_data(student_data, grading_scheme):
+    """
+    Evaluates the student's data against the grading scheme.
+
+    Args:
+        student_data (str): The student's data.
+        grading_scheme (dict): The grading scheme containing tasks and lines to match.
+
+    Returns:
+        dict: The evaluation results, including total points and feedback.
+    """
+    results = {
+        "total_points": 0,
+        "earned_points": 0,
+        "feedback": []
+    }
+
+    for task in grading_scheme["tasks"]:
+        task_feedback = {
+            "task": task["task"],
+            "points": 0,
+            "earned": 0,
+            "details": [],
+            "feedback": []
+        }
+
+        for line in task["lines"]:
+            answer_key_line = line["line"]
+            points = line["points"]
+            detail = line.get("detail", "")
+            feedback = line.get("feedback", "")
+
+            results["total_points"] += points
+            task_feedback["points"] += points
+
+            if any(match_line(student_line, answer_key_line) for student_line in student_data.splitlines()):
+                task_feedback["earned"] += points
+                results["earned_points"] += points
+                task_feedback["details"].append(detail)
+            else:
+                task_feedback["feedback"].append(feedback)
+
+        results["feedback"].append(task_feedback)
+
+    return results
+
+
 
 def main():
     # Set up argument parsing
@@ -208,9 +268,10 @@ def main():
     for student in students:
         username = student['username']
         student_data = read_student_files(username, file_name, data_dir)
-        # Process the student_data as needed
-        # For now, we'll just log it
-        logging.info(f"Data for student {username}: {student_data}")
+        # Evaluate the student's data
+        results = evaluate_student_data(student_data, grading_scheme)
+        # Log the results for now, you can save it to a file or database as needed
+        logging.info(f"Results for student {username}: {results}")
 
 if __name__ == "__main__":
     main()
