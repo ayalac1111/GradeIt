@@ -1,6 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+"""
+GradeMaster: A flexible grading tool based on an answer key.
+This script converts an answer key to a grading scheme, evaluates student data,
+and generates feedback.
+
+Usage:
+    python grade_master.py answer_key_dir student_data_dir
+
+Author: C. Ayala - ayalac@algonquincollege.com
+Date: July 10th 2024
+"""
+
 import argparse
 import logging
 import os
@@ -14,6 +26,15 @@ import csv
 SPECIAL_CHAR = "#"
 
 def parse_special_line(line):
+    """
+    Parses a line to extract points or keyword-value pairs.
+
+    Args:
+        line (str): The line to parse.
+
+    Returns:
+        tuple: A tuple containing points and value, or keyword and value.
+    """
     match = re.match(r"^#\[\s*(\d+)\s*\](.*)", line)
     if match:
         points = int(match.group(1).strip())
@@ -28,6 +49,14 @@ def parse_special_line(line):
     return None, None
 
 def convert_answer_key_to_yaml(answer_key_path, output_path):
+    """
+    Converts an answer key file to a YAML grading scheme.
+
+    Args:
+        answer_key_path (str): The path to the answer key file.
+        output_path (str): The path to the output YAML file.
+    """
+
     grading_scheme = {
         "course": "NONE",
         "lab": "NONE",
@@ -229,17 +258,7 @@ def evaluate_student_data(student_data, grading_scheme):
     return results
 
 def save_feedback(student, feedback, total_points, earned_points, lab_info, data_directory):
-    """
-    Saves feedback for the student in a Markdown file.
 
-    Args:
-        student (dict): A dictionary with 'username' and 'uid'.
-        feedback (list): A list of feedback messages.
-        total_points (int): The total points possible.
-        earned_points (int): The points earned by the student.
-        lab_info (dict): A dictionary with lab information.
-        data_directory (str): The path to the data directory.
-    """
 
     feedback_file = os.path.join(data_directory, f"{student['username']}_feedback.md")
 
@@ -369,6 +388,11 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
     logging.info(f"Feedback saved to {feedback_file}")
 
 def main():
+    """
+    Main function to run the GradeMaster script.
+    Parses arguments, validates directories and files, converts the answer key to a YAML grading scheme, loads students, evaluates their data, and saves feedback.
+    """
+
     # Set up argument parsing
     parser = argparse.ArgumentParser(description='GradeMaster: A flexible grading tool based on an answer key.')
     parser.add_argument('key_dir', type=str, help='The directory where the answer_key and grading_scheme are located.')
