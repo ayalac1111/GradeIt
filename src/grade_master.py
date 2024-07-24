@@ -25,6 +25,7 @@ import csv
 
 SPECIAL_CHAR = "#"
 
+
 def parse_special_line(line):
     """
     Parses a line to extract points or keyword-value pairs.
@@ -211,7 +212,23 @@ def match_line(student_line, answer_key_line):
 
     return match is not None
 
-def evaluate_student_data(student_data, grading_scheme):
+
+def preprocess_answer_key_for_student(answer_key, uid):
+    """
+    Replaces '{U}' in the answer key with the student's UID.
+
+    Args:
+        answer_key (str): The answer key line.
+        uid (str): The student's unique ID.
+
+    Returns:
+        str: The preprocessed answer key line.
+    """
+    if uid is not None:
+        return answer_key.replace('{U}', str(uid))
+    return answer_key
+
+def evaluate_student_data(student_data, grading_scheme, uid):
     """
     Evaluates the student's data against the grading scheme.
 
@@ -238,7 +255,7 @@ def evaluate_student_data(student_data, grading_scheme):
         }
 
         for line in task["lines"]:
-            answer_key_line = line["line"]
+            answer_key_line = preprocess_answer_key_for_student(line["line"], uid)
             points = line["points"]
             detail = line.get("detail", "")
             feedback = line.get("feedback", "")
@@ -257,56 +274,6 @@ def evaluate_student_data(student_data, grading_scheme):
 
     return results
 
-def save_feedback(student, feedback, total_points, earned_points, lab_info, data_directory):
-
-
-    feedback_file = os.path.join(data_directory, f"{student['username']}_feedback.md")
-
-    with open(feedback_file, 'w') as file:
-        # Write the header
-        file.write(f"{lab_info['course']} - {lab_info['lab']}\n\n")
-        file.write("---")
-        file.write(f"Marked on {datetime.now().strftime('%a %d %b %Y %H:%M:%S %Z')}\n")
-        file.write(f"Marked by  {lab_info['professor']}\n")
-        file.write(f"Student ID {student['username']}\n")
-        file.write("---\n\n")
-
-        logging.info(f"Feedback structure: {feedback}")
-
-        # Write the feedback for each task
-        task_number = 1
-        for task_feedback in feedback:
-            file.write(f"TASK {task_number} - {task_feedback['task']}\n\n")
-            task_number += 1
-
-            # Write the table header
-            file.write("| Detail | Points | Earned |\n")
-            file.write("|--------|--------|--------|\n")
-
-            for i, detail in enumerate(task_feedback['details']):
-                points = task_feedback['points']
-                earned = task_feedback['earned']
-                file.write(f"| {detail} | {points} | {earned} |\n")
-
-                # Write the feedback if points are not earned
-                if earned == 0:
-                    feedback_message = task_feedback['feedback']
-                    file.write(f"FEEDBACK: {feedback_message}\n")
-
-            file.write("---\n\n")
-
-        # Write the final information
-        file.write("## DISPLAYING FINAL INFORMATION\n\n")
-        file.write(f"{lab_info['course']} - {lab_info['lab']}: {earned_points}\n")
-        file.write(f"{lab_info['course']} - {lab_info['lab']} GRADE: {earned_points} / {total_points}\n\n")
-        file.write("---\n\n")
-
-        # List submitted files
-        file.write("## Students Files:\n\n")
-        files = os.listdir(data_directory)
-        for f in files:
-            if student['username'] in f:
-                file.write(f"- {f}\n")
 
 from tabulate import tabulate
 
@@ -324,9 +291,10 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
     course = grading_scheme.get('course', 'Unknown Course')
     lab = grading_scheme.get('lab', 'Unknown Lab')
     professor = grading_scheme.get('professor', 'Unknown Professor')
+    student_uid = student.get('uid', None)
 
     # Create the feedback file path
-    feedback_file = os.path.join(output_dir, f"{student['username']}_feedback.txt")
+    feedback_file = os.path.join(output_dir, f"{student['username']}-feedback.txt")
 
     # Write the feedback to the file
     with open(feedback_file, 'w') as file:
@@ -361,6 +329,11 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
                 if detail == '':
                     detail = feedback_display
 
+                # Replace {U} with the student's UID in details and feedbacks if UID is not NONE
+                if student_uid and student_uid != 'NONE':
+                    detail = detail.replace("{U}", student_uid)
+                    feedback = feedback.replace("{U}", student_uid)
+
                 row = [
                     task_name if i == 0 else '',  # Only show the task name once
                     detail,
@@ -382,8 +355,8 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
 
         #print(f"\nStudent ID {student['username']}\n")
         #print(tabulate(table, headers=headers, tablefmt="pretty"))
-        # Write the table to the file
-        file.write(tabulate(table, headers=headers, tablefmt="pretty"))
+        # Write the table to the file with column alignment
+        file.write(tabulate(table, headers=headers, tablefmt="pretty", colalign=("left", "left", "center", "center")))
 
     logging.info(f"Feedback saved to {feedback_file}")
 
@@ -447,10 +420,12 @@ def main():
 
     for student in students:
         username = student['username']
+        uid = student['uid']
+
         student_data = read_student_files(username, file_name, data_dir)
 
         # Evaluate the student's data
-        results = evaluate_student_data(student_data, grading_scheme)
+        results = evaluate_student_data(student_data, grading_scheme, uid)
         # Log the results for now, you can save it to a file or database as needed
 
          # Save feedback for the student
