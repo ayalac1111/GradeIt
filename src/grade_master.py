@@ -360,6 +360,33 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
 
     logging.info(f"Feedback saved to {feedback_file}")
 
+def save_student_results_to_csv(student, results, lab_name, output_dir):
+    """
+    Save the student's results to a CSV file.
+
+    Args:
+        student (dict): A dictionary with 'username' and 'uid'.
+        results (dict): The evaluation results.
+        lab_name (str): The name of the lab.
+        output_dir (str): The directory where the results file should be saved.
+    """
+    csv_file = os.path.join(output_dir, f"{lab_name}-grades.csv")
+
+    # Check if the file already exists
+    file_exists = os.path.isfile(csv_file)
+
+    with open(csv_file, 'a', newline='') as file:
+        writer = csv.writer(file)
+        if not file_exists:
+            # Write header if the file doesn't exist
+            writer.writerow(['username', 'earned_points'])
+
+        # Write the student's result
+        writer.writerow([student['username'], results['earned_points']])
+
+    logging.info(f"Results saved to {csv_file}")
+
+
 def main():
     """
     Main function to run the GradeMaster script.
@@ -418,6 +445,8 @@ def main():
         logging.error("No FILES keyword found in the answer_key.")
         sys.exit(1)
 
+    lab_name = grading_scheme.get('lab', 'Unknown_Lab').replace(" ", "_")
+
     for student in students:
         username = student['username']
         uid = student['uid']
@@ -430,6 +459,9 @@ def main():
 
          # Save feedback for the student
         save_student_feedback( student, results, grading_scheme, data_dir )
+
+        # Save student's results to a CSV file
+        save_student_results_to_csv(student, results, lab_name, data_dir)
 
         logging.info(f"Results for student {username}: {results}")
 
