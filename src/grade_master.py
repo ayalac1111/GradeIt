@@ -319,30 +319,22 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
             points = task_result.get('points', 0)
             earned = task_result.get('earned', 0)
 
+            # Add task row
+            table.append([task_name, "", points, earned])
+
             # Ensure details and feedbacks are handled correctly
-            max_len = max(len(details), len(feedbacks))
-            for i in range(max_len):
-                detail = details[i] if i < len(details) else ''
-                feedback = feedbacks[i] if i < len(feedbacks) else ''
-                feedback_display = feedback if earned < points else ''  # Only show feedback when earned is less than points
-
-                if detail == '':
-                    detail = feedback_display
-
+            for detail in details:
                 # Replace {U} with the student's UID in details and feedbacks if UID is not NONE
-                if student_uid and student_uid != 'NONE':
-                    detail = detail.replace("{U}", student_uid)
-                    feedback = feedback.replace("{U}", student_uid)
-
-                row = [
-                    task_name if i == 0 else '',  # Only show the task name once
-                    detail,
-                    points if i == 0 else '',  # Only show points once per task
-                    earned if i == 0 else '',  # Only show earned points once per task
-                    #feedback_display
-                ]
+                if student['uid'] and student['uid'] != 'NONE':
+                    detail = detail.replace("{U}", student['uid'])
+                row = ["", detail, "", ""]
                 table.append(row)
-                task_name = ''  # Only show the task name once
+
+            for feedback in feedbacks:
+                if student['uid'] and student['uid'] != 'NONE':
+                    feedback = feedback.replace("{U}", student['uid'])
+                row = ["", feedback, "", ""]
+                table.append(row)
 
             table.append(["", "", "", ""])
 
