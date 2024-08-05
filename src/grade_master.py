@@ -228,6 +228,59 @@ def preprocess_answer_key_for_student(answer_key, uid):
         return answer_key.replace('{U}', str(uid)).strip()
     return answer_key.strip()
 
+
+def update_general_feedback(general_feedback, student_feedback):
+    """
+    Updates the general feedback structure with the results from a student's feedback.
+
+    Args:
+        general_feedback (dict): The general feedback structure.
+        student_feedback (dict): The feedback from a single student.
+    """
+
+    general_feedback["total_students"] += 1
+
+    for student_task_feedback in student_feedback["feedback"]:
+        task_name = student_task_feedback["task"]
+        scores = student_task_feedback["score"]
+
+        # Find or create the task feedback in general feedback
+        task_feedback = next((task for task in general_feedback["tasks"] if task["task"] == task_name), None)
+        if task_feedback is None:
+            task_feedback = {
+                "task": task_name,
+                "scores": [0] * len(scores),
+                "total_points": len(scores),
+                "earned_points": 0,
+                "task_average_score": 0,
+                "task_average_rate": 0,
+            }
+            general_feedback["tasks"].append(task_feedback)
+
+        # Update the scores and feedback summary
+        for i, score in enumerate(scores):
+            task_feedback["scores"][i] += score
+            task_feedback["earned_points"] += score
+
+    # Calculate overall total points
+    total_points = sum(task["total_points"] for task in general_feedback["tasks"])
+
+    # Calculate average score and rate for each task
+    for task_feedback in general_feedback["tasks"]:
+        task_feedback["task_average_score"] = round(task_feedback["earned_points"] / general_feedback["total_students"], 2)
+        task_feedback["task_average_rate"] = round((task_feedback["earned_points"] / (task_feedback["total_points"] * general_feedback["total_students"])) * 100, 2)
+
+    # Calculate overall average score
+    total_earned_points = sum(task["earned_points"] for task in general_feedback["tasks"])
+    general_feedback["total_score"] = total_earned_points
+    general_feedback["average_score"] = round(total_earned_points / total_points if total_points > 0 else 0, 2)
+
+    # Calculate pass rate
+    passing_students = sum(1 for task in general_feedback["tasks"] if task["earned_points"] / (task["total_points"] * general_feedback["total_students"]) >= 0.5)
+    general_feedback["pass_rate"] = round(passing_students / general_feedback["total_students"], 2)
+
+
+
 def evaluate_student_data(student, student_data, grading_scheme):
     """
     Evaluates the student's data against the grading scheme.
@@ -462,6 +515,14 @@ def main():
         logging.error("No FILES keyword found in the answer_key.")
         sys.exit(1)
 
+    # Initialize general feedback
+    general_feedback = {
+        "total_students": 0,
+        "average_score": 0,
+        "pass_rate": 0,
+        "tasks": []
+    }
+
     for student in students:
         username = student['username']
         uid = student['uid']
@@ -469,20 +530,22 @@ def main():
 
         # Evaluate the student's data
         results = evaluate_student_data(student, student_data, grading_scheme)
-        # Log the results for now, you can save it to a file or database as needed
-
-        # Save feedback for the student
-        save_student_feedback(student, results, grading_scheme, feedback_dir)
 
         logging.debug(f"Results for student {username}: {results}")
 
-        if results is not None:
-            logging.debug(f"Results for student {username}: {results}")
+        # Save student feedback only if results are not None
+        if results:
+            save_student_feedback(student, results, grading_scheme, feedback_dir)
+            update_general_feedback(general_feedback, results)
             save_student_results_to_csv(student, results, lab_name, lab_dir)
         else:
+            logging.info(f"No submission or empty submission for student {username}")
             save_student_results_to_csv(student, {"earned_points": 0}, lab_name, lab_dir)
 
-        logging.debug(f"Results for student {username}: {results}")
+    # Save general feedback to a file
+    general_feedback_file = os.path.join(lab_dir, f'{lab_name}_general_feedback.yaml')
+    with open(general_feedback_file, 'w') as yamlfile:
+        yaml.dump(general_feedback, yamlfile, default_flow_style=False)
 
 if __name__ == "__main__":
     main()

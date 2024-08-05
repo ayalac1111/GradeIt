@@ -8,7 +8,8 @@ GradeMaster is a flexible and automated grading tool designed to evaluate studen
 - **Variable Handling**: Supports unique identifiers (UID) for personalized grading.
 - **Detailed Feedback**: Generates detailed feedback files for each student.
 - **CSV Reporting**: Outputs a CSV file with the grading results for all students.
-- **Markdown and Text Feedback**: Saves feedback in a readable format using `tabulate`.
+- **Text Feedback**: Saves feedback in a readable format using `tabulate`.
+- **General feedback**:  Aggregates general feedback to track overall student performance.
 
 ## Getting Started
 
@@ -61,16 +62,16 @@ To organize your course and lab data, use the following directory structure:
     │   │   └── abcd0003-11.txt
     ├── 12
         ├── 12-grades.csv
-        ├── 12_answer_key.txt**
+        ├── 12_answer_key.txt
         ├── 12_grading_scheme.yaml
         ├── feedback
         │   ├── abcd0001-feedback.txt
         │   ├── abcd0002-feedback.txt
         │   └── abcd0003-feedback.txt
         └── submissions
-            ├── abcd0001-11.txt
-            ├── abcd0002-11.txt
-            └── abcd0003-11.txt
+            ├── abcd0001-12.txt
+            ├── abcd0002-12.txt
+            └── abcd0003-12.txt
 
 ```
 
@@ -103,13 +104,25 @@ This will:
 4. Read student submissions from `24S-CST8371/Labs/10/submissions/`.
 5. Evaluate each student's submission and save feedback in `24S-CST8371/Labs/10/feedback/`.
 6. Save the grades to `24S-CST8371/Labs/10/10_grades.csv`.
+7. Update the general feedback structure and save it to `24S-CST8371/Labs/10/10_general_feedback.yaml`.
 
-## Features
+## General Feedback
 
-- Flexible grading based on a customizable answer key.
-- Supports multiple labs and organizes data efficiently.
-- Generates feedback for each student and saves it in a structured format.
-- Saves grades to a CSV file for easy access and review.
+In addition to individual student feedback, GradeMaster also generates a general feedback structure that aggregates data from all student submissions. This general feedback includes:
+
+- `total_students`: The total number of students who submitted their work.
+- `total_score`: The total score earned by all students.
+- `average_score`: The average score of all students.
+- `pass_rate`: The percentage of students who passed the lab.
+- Detailed task feedback, including:
+    - `task`: The name of the task.
+    - `scores`: An array representing the total scores for each line in the answer key.
+    - `total_points`: The total points available for the task.
+    - `earned_points`: The total points earned by all students for the task.
+    - `task_average_score`: The average score for the task.
+    - `task_average_rate`: The percentage rate of the average score relative to the total points.
+
+The general feedback is saved to a YAML file for each lab, providing insights into overall student performance and highlighting areas where students may need additional support.
 
 ## Requirements
 

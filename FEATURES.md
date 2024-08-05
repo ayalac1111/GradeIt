@@ -9,17 +9,17 @@ This document outlines planned modifications and features to be implemented in G
   - [x] Determine how to handle the `students.csv` file, whether it should be passed as a command line argument.
 
 ## Feedback Directory Modifications
-- [ ] Modify the directory where feedback files are created:
-  - [ ] Option to create a feedback directory at the same level as the student data directory.
-  - [ ] Option to create a feedback directory inside the student data directory.
+- [x] Modify the directory where feedback files are created:
+  - [x] Option to create a feedback directory at the same level as the student data directory.
+  - [x] Option to create a feedback directory inside the student data directory.
 
 ## Student Feedback Structure Modifications
-- [ ] Modify student feedback structure:
-  - [ ] Create an array per task of 1 or 0 instead of duplicating details/feedback from the `answer_key`.
-  - [ ] Update all functions that handle the student feedback structure to accommodate this new format.
+- [x] Modify student feedback structure:
+  - [x] Create an array per task of 1 or 0 instead of duplicating details/feedback from the `answer_key`.
+  - [x] Update all functions that handle the student feedback structure to accommodate this new format.
 
 ## General Feedback Structure
-- [ ] Create a general feedback structure to:
+- [x] Create a general feedback structure to:
   - [ ] Use a similar feedback structure as for individual students.
   - [ ] Keep track of all students' feedback to identify common strengths and weaknesses.
   - [ ] Analyze areas where students collectively faced the most challenges.
