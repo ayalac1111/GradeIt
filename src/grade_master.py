@@ -228,11 +228,12 @@ def preprocess_answer_key_for_student(answer_key, uid):
         return answer_key.replace('{U}', str(uid)).strip()
     return answer_key.strip()
 
-def evaluate_student_data(student_data, grading_scheme, uid):
+def evaluate_student_data(student, student_data, grading_scheme):
     """
     Evaluates the student's data against the grading scheme.
 
     Args:
+        student (dict): The student dictionary containing 'username', 'uid', and other potential details.
         student_data (str): The student's data.
         grading_scheme (dict): The grading scheme containing tasks and lines to match.
 
@@ -248,6 +249,9 @@ def evaluate_student_data(student_data, grading_scheme, uid):
         "earned_points": 0,
         "feedback": []
     }
+
+    uid = student.get('uid', 'NONE')
+
 
     for task in grading_scheme["tasks"]:
         task_feedback = {
@@ -469,7 +473,7 @@ def main():
         student_data = read_student_files(username, file_name, submissions_dir)
 
         # Evaluate the student's data
-        results = evaluate_student_data(student_data, grading_scheme, uid)
+        results = evaluate_student_data(student, student_data, grading_scheme)
         # Log the results for now, you can save it to a file or database as needed
 
         # Save feedback for the student
