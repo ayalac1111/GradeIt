@@ -28,26 +28,54 @@ SPECIAL_CHAR = "#"
 
 def parse_special_line(line):
     """
-    Parses a line to extract points or keyword-value pairs.
+    Parses a line with special markers indicating points or keywords and their associated values.
 
     Args:
-        line (str): The line to parse.
+        line (str): The line to be parsed.
 
     Returns:
-        tuple: A tuple containing points and value, or keyword and value.
+        tuple: A tuple containing either (points, value) or (keyword, value), or (None, None) if no match is found.
     """
-    match = re.match(r"^#\[\s*(\d+)\s*\](.*)", line)
+
+    # match.group(1): Captures the points or keyword.
+    # match.group(2): Captures the decimal part of the points (in the first regex) or the value (in the second regex).
+    # match.group(3): Captures the value (in the first regex).
+
+    # First regular expression pattern to match lines that start with #[<points>] <value>
+    match = re.match(r"^#\[\s*(\d+(\.\d+)?)\s*\](.*)", line)
+    # ^#\[ matches the beginning of the line followed by #[.
+    # \s* matches any whitespace characters (spaces, tabs) zero or more times.
+    # (\d+(\.\d+)?) captures one or more digits followed optionally by a decimal point and one or more digits, representing the points. This is captured in match.group(1).
+    # \s* matches any whitespace characters zero or more times.
+    # \] matches the closing ].
+    #(.*) captures any remaining characters on the line as the value. This is captured in match.group(3).
+
     if match:
-        points = int(match.group(1).strip())
-        value = match.group(2).strip()
+        # Group 1: The points value, which can be an integer or a float.
+        # Group 3: The associated value or text.
+        points = float(match.group(1).strip())
+        value = match.group(3).strip()
         return points, value
     else:
+        # Second regular expression pattern to match lines that start with #[<keyword>: <value>]
         match = re.match(r"^#\[\s*(\w+)\s*:\s*(.*?)\s*\]", line)
+        # ^#\[ matches the beginning of the line followed by #[.
+        # \s* matches any whitespace characters zero or more times.
+        # (\w+) captures one or more word characters (letters, digits, underscores) as the keyword. This is captured in match.group(1).
+        # \s*:\s* matches a colon : surrounded by zero or more whitespace characters.
+        # (.*?) captures any characters non-greedily as the value. This is captured in match.group(2).
+        # \s* matches any whitespace characters zero or more times.
+        # \] matches the closing ].
         if match:
+            # Group 1: The keyword.
+            # Group 2: The associated value or text.
             keyword = match.group(1).strip()
             value = match.group(2).strip()
             return keyword, value
+
+    # Return (None, None) if no patterns match.
     return None, None
+
 
 def convert_answer_key_to_yaml(answer_key_path, output_path):
     """
@@ -107,7 +135,7 @@ def convert_answer_key_to_yaml(answer_key_path, output_path):
                             current_task["lines"][-1]["feedback"] = value
                     else:
                         try:
-                            points = int(keyword)
+                            points = float(keyword)
                             if current_task is not None:
                                 current_task["lines"].append({
                                     "line": value,
@@ -229,13 +257,14 @@ def preprocess_answer_key_for_student(answer_key, uid):
     return answer_key.strip()
 
 
-def update_general_feedback(general_feedback, student_feedback):
+def update_general_feedback(general_feedback, student_feedback, grading_scheme):
     """
     Updates the general feedback structure with the results from a student's feedback.
 
     Args:
         general_feedback (dict): The general feedback structure.
         student_feedback (dict): The feedback from a single student.
+        grading_scheme (dict): The grading scheme containing tasks and lines to match.
     """
 
     general_feedback["total_students"] += 1
@@ -249,36 +278,41 @@ def update_general_feedback(general_feedback, student_feedback):
         if task_feedback is None:
             task_feedback = {
                 "task": task_name,
-                "scores": [0] * len(scores),
-                "total_points": len(scores),
-                "earned_points": 0,
-                "task_average_score": 0,
-                "task_average_rate": 0,
+                "scores": [0.0] * len(scores),
+                "task_total_points": 0.0,
+                "task_earned_points": 0.0,
+                "task_average_score": 0.0,
+                "task_average_rate": 0.0,
             }
             general_feedback["tasks"].append(task_feedback)
 
-        # Update the scores and feedback summary
-        for i, score in enumerate(scores):
-            task_feedback["scores"][i] += score
-            task_feedback["earned_points"] += score
+        # Find the corresponding task in the grading scheme
+        grading_task = next((task for task in grading_scheme["tasks"] if task["task"] == task_name), None)
+        if grading_task:
+            # Update the scores and feedback summary
+            for i, score in enumerate(scores):
+                task_feedback["scores"][i] += score
+                task_feedback["task_earned_points"] += score
+                task_feedback["task_total_points"] += grading_task["lines"][i]["points"]
 
-    # Calculate overall total points
-    total_points = sum(task["total_points"] for task in general_feedback["tasks"])
+    # Calculate overall total points for all tasks
+    total_points = sum(line["points"] for task in grading_scheme["tasks"] for line in task["lines"])
+    general_feedback["total_points"] = total_points
+
 
     # Calculate average score and rate for each task
     for task_feedback in general_feedback["tasks"]:
-        task_feedback["task_average_score"] = round(task_feedback["earned_points"] / general_feedback["total_students"], 2)
-        task_feedback["task_average_rate"] = round((task_feedback["earned_points"] / (task_feedback["total_points"] * general_feedback["total_students"])) * 100, 2)
+        task_feedback["task_average_score"] = round(task_feedback["task_earned_points"] / general_feedback["total_students"], 2)
+        task_feedback["task_average_rate"] = round((task_feedback["task_earned_points"] / task_feedback["task_total_points"]) * 100, 2)
 
     # Calculate overall average score
-    total_earned_points = sum(task["earned_points"] for task in general_feedback["tasks"])
+    total_earned_points = sum(task["task_earned_points"] for task in general_feedback["tasks"])
     general_feedback["total_score"] = total_earned_points
     general_feedback["average_score"] = round(total_earned_points / total_points if total_points > 0 else 0, 2)
 
     # Calculate pass rate
-    passing_students = sum(1 for task in general_feedback["tasks"] if task["earned_points"] / (task["total_points"] * general_feedback["total_students"]) >= 0.5)
+    passing_students = sum(1 for task in general_feedback["tasks"] if task["task_earned_points"] / task["task_total_points"] >= 0.5)
     general_feedback["pass_rate"] = round(passing_students / general_feedback["total_students"], 2)
-
 
 
 def evaluate_student_data(student, student_data, grading_scheme):
@@ -298,8 +332,8 @@ def evaluate_student_data(student, student_data, grading_scheme):
         return None
 
     results = {
-        "total_points": 0,
-        "earned_points": 0,
+        "total_points": 0.0,
+        "earned_points": 0.0,
         "feedback": []
     }
 
@@ -308,19 +342,26 @@ def evaluate_student_data(student, student_data, grading_scheme):
     for task in grading_scheme["tasks"]:
         task_feedback = {
             "task": task["task"],
+             "correctness": [],
             "score": []
         }
 
         for line in task["lines"]:
             answer_key_line = preprocess_answer_key_for_student(line["line"], uid)
+            points = line["points"]
+
+            results["total_points"] += points
 
             if any(match_line(student_line, answer_key_line) for student_line in student_data.splitlines()):
-                task_feedback["score"].append(1)
+                results["earned_points"] += points
+                task_feedback["correctness"].append(1)
+                task_feedback["score"].append(points)
             else:
+                task_feedback["correctness"].append(0)
                 task_feedback["score"].append(0)
 
-        results["total_points"] += len(task_feedback["score"])
-        results["earned_points"] += sum(task_feedback["score"])
+        #results["total_points"] += len(task_feedback["score"])
+        #results["earned_points"] += sum(task_feedback["score"])
         results["feedback"].append(task_feedback)
 
     return results
@@ -377,11 +418,16 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
             if grading_task:
                 details = [line.get("detail", "") for line in grading_task["lines"]]
                 feedbacks = [line.get("feedback", "") for line in grading_task["lines"]]
+                total_task_points = sum(line["points"] for line in grading_task["lines"])
+
+            earned_points = sum(score * grading_task["lines"][i]["points"] for i, score in enumerate(scores))
 
             for i in range(len(scores)):
                 detail = details[i] if i < len(details) else ''
                 feedback = feedbacks[i] if i < len(feedbacks) else ''
                 score = scores[i]
+                line_points = grading_task["lines"][i]["points"] if i < len(grading_task["lines"]) else 0
+
 
                 # Replace {U} with the student's UID in details and feedbacks if UID is not NONE
                 if student.get('uid') and student['uid'] != 'NONE':
@@ -389,10 +435,10 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
                     feedback = feedback.replace("{U}", student['uid'])
 
                 row = [
-                    task_name if i == 0 else '',  # Only show the task name once
-                    detail if score == 1 else feedback,  # Show detail if score is 1, else show feedback
-                    len(scores) if i == 0 else '',  # Only show total points once per task
-                    sum(scores) if i == 0 else ''  # Only show earned points once per task
+                    task_name if i == 0 else '',              # Only show the task name once
+                    detail if score == line_points else feedback,  # Show detail if score is 1, else show feedback
+                    sum(scores) if i == 0 else '',           # Only show earned points once per task
+                    total_task_points if i == 0 else ''     # Only show total points once per task
                 ]
                 table.append(row)
                 task_name = ''  # Only show the task name once
@@ -536,7 +582,7 @@ def main():
         # Save student feedback only if results are not None
         if results:
             save_student_feedback(student, results, grading_scheme, feedback_dir)
-            update_general_feedback(general_feedback, results)
+            update_general_feedback(general_feedback, results, grading_scheme)
             save_student_results_to_csv(student, results, lab_name, lab_dir)
         else:
             logging.info(f"No submission or empty submission for student {username}")
