@@ -252,32 +252,22 @@ def evaluate_student_data(student, student_data, grading_scheme):
 
     uid = student.get('uid', 'NONE')
 
-
     for task in grading_scheme["tasks"]:
         task_feedback = {
             "task": task["task"],
-            "points": 0,
-            "earned": 0,
-            "details": [],
-            "feedback": []
+            "score": []
         }
 
         for line in task["lines"]:
             answer_key_line = preprocess_answer_key_for_student(line["line"], uid)
-            points = line["points"]
-            detail = line.get("detail", "")
-            feedback = line.get("feedback", "")
-
-            results["total_points"] += points
-            task_feedback["points"] += points
 
             if any(match_line(student_line, answer_key_line) for student_line in student_data.splitlines()):
-                task_feedback["earned"] += points
-                results["earned_points"] += points
-                task_feedback["details"].append(detail)
+                task_feedback["score"].append(1)
             else:
-                task_feedback["feedback"].append(feedback)
+                task_feedback["score"].append(0)
 
+        results["total_points"] += len(task_feedback["score"])
+        results["earned_points"] += sum(task_feedback["score"])
         results["feedback"].append(task_feedback)
 
     return results
@@ -327,27 +317,32 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
 
         for task_result in results['feedback']:
             task_name = task_result.get('task', 'Unknown Task')
-            details = task_result.get('details', [])
-            feedbacks = task_result.get('feedback', [])
-            points = task_result.get('points', 0)
-            earned = task_result.get('earned', 0)
+            scores = task_result.get('score', [])
 
-            # Add task row
-            table.append([task_name, "", earned, points])
+            # Find the task in the grading scheme
+            grading_task = next((task for task in grading_scheme["tasks"] if task["task"] == task_name), None)
+            if grading_task:
+                details = [line.get("detail", "") for line in grading_task["lines"]]
+                feedbacks = [line.get("feedback", "") for line in grading_task["lines"]]
 
-            # Ensure details and feedbacks are handled correctly
-            for detail in details:
+            for i in range(len(scores)):
+                detail = details[i] if i < len(details) else ''
+                feedback = feedbacks[i] if i < len(feedbacks) else ''
+                score = scores[i]
+
                 # Replace {U} with the student's UID in details and feedbacks if UID is not NONE
-                if student['uid'] and student['uid'] != 'NONE':
-                    detail = detail.replace("{U}", student['uid'].strip())
-                row = ["", detail, "", ""]
-                table.append(row)
+                if student.get('uid') and student['uid'] != 'NONE':
+                    detail = detail.replace("{U}", student['uid'])
+                    feedback = feedback.replace("{U}", student['uid'])
 
-            for feedback in feedbacks:
-                if student['uid'] and student['uid'] != 'NONE':
-                    feedback = feedback.replace("{U}", student['uid'].strip())
-                row = ["", feedback, "", ""]
+                row = [
+                    task_name if i == 0 else '',  # Only show the task name once
+                    detail if score == 1 else feedback,  # Show detail if score is 1, else show feedback
+                    len(scores) if i == 0 else '',  # Only show total points once per task
+                    sum(scores) if i == 0 else ''  # Only show earned points once per task
+                ]
                 table.append(row)
+                task_name = ''  # Only show the task name once
 
             table.append(["", "", "", ""])
 
