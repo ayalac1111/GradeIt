@@ -31,15 +31,6 @@ GradeMaster/
 ├── FEATURES.md
 ├── LICENE
 ├── README.md
-├── TestData
-│   ├── Data
-│   │   ├── abcd0001-data.txt
-│   │   ├── abcd0002-data.txt
-│   │   ├── abcd0003-data.txt
-│   │   └── abcd0004-data.txt
-│   └── Keys
-│       ├── answer_key.txt
-│       └── students.csv
 ├── requirements.txt
 ├── src
 │   ├── __init__.py
@@ -48,22 +39,85 @@ GradeMaster/
     └── __init__.py
 ```
 
-### Usage
+### Directory Structure
 
-1. **Prepare the Answer Key**: Create an `answer_key.txt` file in the key directory with tasks and expected outputs using special characters for regular expressions and variables.
-    
-2. **Prepare Student Data**: Place student submission files in the data directory. Ensure the `students.csv` file is present in the key directory with the format `username, uid`.
-    
-3. **Run GradeMaster**: Execute the `grade_master.py` script with the key and data directories as arguments
+To organize your course and lab data, use the following directory structure:
 
-**students.csv**:
+```bash
+24S-CST8371
+├── students.csv
+├── Labs
+    ├── 11
+    │   ├── 11-grades.csv
+    │   ├── 11_answer_key.txt**
+    │   ├── 11_grading_scheme.yaml
+    │   ├── feedback
+    │   │   ├── abcd0001-feedback.txt
+    │   │   ├── abcd0002-feedback.txt
+    │   │   └── abcd0003-feedback.txt
+    │   └── submissions
+    │   │   ├── abcd0001-11.txt
+    │   │   ├── abcd0002-11.txt
+    │   │   └── abcd0003-11.txt
+    ├── 12
+        ├── 12-grades.csv
+        ├── 12_answer_key.txt**
+        ├── 12_grading_scheme.yaml
+        ├── feedback
+        │   ├── abcd0001-feedback.txt
+        │   ├── abcd0002-feedback.txt
+        │   └── abcd0003-feedback.txt
+        └── submissions
+            ├── abcd0001-11.txt
+            ├── abcd0002-11.txt
+            └── abcd0003-11.txt
 
-```csv
-abcd0001, 101
-abcd0002, 102
 ```
 
-4. **Review Results**: The results will be saved in the data directory as `<username>_feedback.txt` and a summary CSV file will be generated as `<labname>-grades.csv`.
+### Usage
+
+To use GradeMaster, run the `grade_master.py` script with the root directory and lab number/name as arguments.
+
+### Command Line
+
+
+``` bash
+python grade_master.py <root_directory> <lab_number_or_name>
+```
+
+- `<root_directory>`: The root directory for the course (e.g., `24S-CST8371`).
+- `<lab_number_or_name>`: The lab number or name (e.g., `10` or `NAT`).
+
+### Example
+
+
+``` bash
+python grade_master.py 24S-CST8371 10
+```
+
+This will:
+
+1. Load the students from `24S-CST8371/students.csv`.
+2. Read the answer key from `24S-CST8371/Labs/10/10_answer_key.txt`.
+3. Convert the answer key to `24S-CST8371/Labs/10/10_grading_scheme.yaml`.
+4. Read student submissions from `24S-CST8371/Labs/10/submissions/`.
+5. Evaluate each student's submission and save feedback in `24S-CST8371/Labs/10/feedback/`.
+6. Save the grades to `24S-CST8371/Labs/10/10_grades.csv`.
+
+## Features
+
+- Flexible grading based on a customizable answer key.
+- Supports multiple labs and organizes data efficiently.
+- Generates feedback for each student and saves it in a structured format.
+- Saves grades to a CSV file for easy access and review.
+
+## Requirements
+
+Make sure to have the necessary Python packages installed:
+
+```bash
+pip install -r requirements.txt
+```
 
 ### Contributing
 

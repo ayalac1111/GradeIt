@@ -3,10 +3,10 @@
 This document outlines planned modifications and features to be implemented in GradeMaster.
 
 ## Command Line Modifications
-- [ ] Modify command line options to include:
-  - [ ] Read `answer_key` name (instead of assuming a fixed name).
-  - [ ] Read student directory name, where student data will be.
-  - [  ] Determine how to handle the `students.csv` file, whether it should be passed as a command line argument.
+- [x] Modify command line options to include:
+  - [x] Read `answer_key` name (instead of assuming a fixed name).
+  - [x] Read student directory name, where student data will be.
+  - [x] Determine how to handle the `students.csv` file, whether it should be passed as a command line argument.
 
 ## Feedback Directory Modifications
 - [ ] Modify the directory where feedback files are created:

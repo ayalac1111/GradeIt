@@ -206,7 +206,7 @@ def match_line(student_line, answer_key_line):
 
     # Log the result of the match
     if match:
-        logging.debug(f"Match found: {match.group(0)}")
+        logging.debug(f"\n------------->Match found: {match.group(0)}")
     else:
         logging.debug("No match found")
 
@@ -225,8 +225,8 @@ def preprocess_answer_key_for_student(answer_key, uid):
         str: The preprocessed answer key line.
     """
     if uid is not None:
-        return answer_key.replace('{U}', str(uid))
-    return answer_key
+        return answer_key.replace('{U}', str(uid)).strip()
+    return answer_key.strip()
 
 def evaluate_student_data(student_data, grading_scheme, uid):
     """
@@ -239,6 +239,10 @@ def evaluate_student_data(student_data, grading_scheme, uid):
     Returns:
         dict: The evaluation results, including total points and feedback.
     """
+
+    if not student_data.strip():
+        return None
+
     results = {
         "total_points": 0,
         "earned_points": 0,
@@ -306,7 +310,12 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
         file.write(f"|  Student ID {student['username']}\n")
         file.write(f"+{'-' * 68}+\n\n")
 
-        headers = ["Task", "Detail/Feedback", "Points", "Earned"]
+        if results is None:
+            file.write("No submission or empty submission\n")
+            logging.info(f"No submission or empty submission for student {student['username']}")
+            return
+
+        headers = ["Task", "Detail/Feedback", "Earned", "Points"]
         table = []
 
         # Add logging to debug the structure of the results
@@ -320,19 +329,19 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
             earned = task_result.get('earned', 0)
 
             # Add task row
-            table.append([task_name, "", points, earned])
+            table.append([task_name, "", earned, points])
 
             # Ensure details and feedbacks are handled correctly
             for detail in details:
                 # Replace {U} with the student's UID in details and feedbacks if UID is not NONE
                 if student['uid'] and student['uid'] != 'NONE':
-                    detail = detail.replace("{U}", student['uid'])
+                    detail = detail.replace("{U}", student['uid'].strip())
                 row = ["", detail, "", ""]
                 table.append(row)
 
             for feedback in feedbacks:
                 if student['uid'] and student['uid'] != 'NONE':
-                    feedback = feedback.replace("{U}", student['uid'])
+                    feedback = feedback.replace("{U}", student['uid'].strip())
                 row = ["", feedback, "", ""]
                 table.append(row)
 
@@ -343,14 +352,12 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
         table.append(["", "", "", ""])
         total_points = results.get('total_points', 0)
         earned_points = results.get('earned_points', 0)
-        table.append(["Total Points", "", total_points, earned_points])
+        table.append(["Total Points", "", earned_points, total_points])
 
-        #print(f"\nStudent ID {student['username']}\n")
-        #print(tabulate(table, headers=headers, tablefmt="pretty"))
         # Write the table to the file with column alignment
         file.write(tabulate(table, headers=headers, tablefmt="pretty", colalign=("left", "left", "center", "center")))
 
-    logging.info(f"Feedback saved to {feedback_file}")
+    logging.debug(f"Feedback saved to {feedback_file}")
 
 def save_student_results_to_csv(student, results, lab_name, output_dir):
     """
@@ -373,10 +380,22 @@ def save_student_results_to_csv(student, results, lab_name, output_dir):
             # Write header if the file doesn't exist
             writer.writerow(['username', 'earned_points'])
 
+
+        # Ensure results is not None and has 'earned_points'
+        earned_points = results['earned_points'] if results and 'earned_points' in results else 0
+
         # Write the student's result
         writer.writerow([student['username'], results['earned_points']])
+        #writer.writerow([f'#{student['username']}, {results['earned_points']}#'])
 
-    logging.info(f"Results saved to {csv_file}")
+    logging.debug(f"Results saved to {csv_file}")
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='GradeMaster: A flexible grading tool based on an answer key.')
+    parser.add_argument('root_dir', type=str, help='The root directory for the course.')
+    parser.add_argument('lab', type=str, help='The lab number or name.')
+    return parser.parse_args()
 
 
 def main():
@@ -385,50 +404,57 @@ def main():
     Parses arguments, validates directories and files, converts the answer key to a YAML grading scheme, loads students, evaluates their data, and saves feedback.
     """
 
-    # Set up argument parsing
-    parser = argparse.ArgumentParser(description='GradeMaster: A flexible grading tool based on an answer key.')
-    parser.add_argument('key_dir', type=str, help='The directory where the answer_key and grading_scheme are located.')
-    parser.add_argument('data_dir', type=str, help='The directory where the students data is located.')
+    # Parse arguments
+    args = parse_arguments()
 
-    args = parser.parse_args()
+    root_dir = args.root_dir
+    lab_name = args.lab
 
     # Set up logging
     logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 
-    key_dir = args.key_dir
-    data_dir = args.data_dir
+    lab_dir = os.path.join(root_dir, 'Labs', lab_name)
+    submissions_dir = os.path.join(lab_dir, 'submissions')
+    feedback_dir = os.path.join(lab_dir, 'feedback')
+    answer_key_file = f"{lab_name}_answer_key.txt"
+    grades_file = f"{lab_name}_grades.csv"
+    grading_scheme_file = f"{lab_name}_grading_scheme.yaml"
 
-    # Validate key_dir
-    if not os.path.isdir(key_dir):
-        logging.error(f"The key directory '{key_dir}' does not exist.")
+    # Validate directories and files
+    if not os.path.isdir(lab_dir):
+        logging.error(f"The lab directory '{lab_dir}' does not exist.")
         sys.exit(1)
 
-    # Validate required files in key_dir
-    required_files = ['answer_key.txt', 'students.csv']
-    for required_file in required_files:
-        file_path = os.path.join(key_dir, required_file)
-        if not os.path.isfile(file_path):
-            logging.error(f"Required file '{required_file}' not found in the key directory '{key_dir}'.")
-            sys.exit(1)
-
-    # Validate data_dir
-    if not os.path.isdir(data_dir):
-        logging.error(f"The data directory '{data_dir}' does not exist.")
+    if not os.path.isdir(submissions_dir):
+        logging.error(f"The submissions directory '{submissions_dir}' does not exist.")
         sys.exit(1)
 
-    logging.info(f"All required files are present in '{key_dir}' and '{data_dir}' directories.")
+    if not os.path.isdir(feedback_dir):
+        os.makedirs(feedback_dir)
+
+    answer_key_path = os.path.join(lab_dir, answer_key_file)
+    if not os.path.isfile(answer_key_path):
+        logging.error(f"The answer key file '{answer_key_path}' does not exist.")
+        sys.exit(1)
+
+    students_file = os.path.join(root_dir, 'students.csv')
+    if not os.path.isfile(students_file):
+        logging.error(f"The students.csv file '{students_file}' does not exist.")
+        sys.exit(1)
+
+    logging.info(f"All required files are present in '{lab_dir}' and '{submissions_dir}' directories.")
 
     # Convert answer_key.txt to grading_scheme.yaml
-    answer_key_path = os.path.join(key_dir, 'answer_key.txt')
-    output_path = os.path.join(key_dir, 'grading_scheme.yaml')
-    convert_answer_key_to_yaml(answer_key_path, output_path)
+    grading_scheme_path = os.path.join(lab_dir, grading_scheme_file)
 
-    # Load grading scheme
-    with open(output_path, 'r') as yamlfile:
+    convert_answer_key_to_yaml(answer_key_path, grading_scheme_path)
+
+
+   # Load grading scheme
+    with open(grading_scheme_path, 'r') as yamlfile:
         grading_scheme = yaml.safe_load(yamlfile)
 
     # Load students
-    students_file = os.path.join(key_dir, 'students.csv')
     students = load_students(students_file)
 
     # Read and process student files
@@ -437,25 +463,27 @@ def main():
         logging.error("No FILES keyword found in the answer_key.")
         sys.exit(1)
 
-    lab_name = grading_scheme.get('lab', 'Unknown_Lab').replace(" ", "_")
-
     for student in students:
         username = student['username']
         uid = student['uid']
-
-        student_data = read_student_files(username, file_name, data_dir)
+        student_data = read_student_files(username, file_name, submissions_dir)
 
         # Evaluate the student's data
         results = evaluate_student_data(student_data, grading_scheme, uid)
         # Log the results for now, you can save it to a file or database as needed
 
-         # Save feedback for the student
-        save_student_feedback( student, results, grading_scheme, data_dir )
+        # Save feedback for the student
+        save_student_feedback(student, results, grading_scheme, feedback_dir)
 
-        # Save student's results to a CSV file
-        save_student_results_to_csv(student, results, lab_name, data_dir)
+        logging.debug(f"Results for student {username}: {results}")
 
-        logging.info(f"Results for student {username}: {results}")
+        if results is not None:
+            logging.debug(f"Results for student {username}: {results}")
+            save_student_results_to_csv(student, results, lab_name, lab_dir)
+        else:
+            save_student_results_to_csv(student, {"earned_points": 0}, lab_name, lab_dir)
+
+        logging.debug(f"Results for student {username}: {results}")
 
 if __name__ == "__main__":
     main()
