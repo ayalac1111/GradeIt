@@ -241,20 +241,26 @@ def match_line(student_line, answer_key_line):
     return match is not None
 
 
-def preprocess_answer_key_for_student(answer_key, uid):
+def preprocess_line_for_student(line, student):
     """
-    Replaces '{U}' in the answer key with the student's UID.
+    Replaces '{U}' and '{USERNAME}' in the line with the student's UID and username,
+    and strips any extra spaces from the input strings.
 
     Args:
-        answer_key (str): The answer key line.
-        uid (str): The student's unique ID.
+        line (str): The line to process.
+        student (dict): The student dictionary containing 'username' and 'uid'.
 
     Returns:
-        str: The preprocessed answer key line.
+        str: The processed line.
     """
+    uid = student.get('uid', None)
+    username = student.get('username', None)
+    line = line.strip()
     if uid is not None:
-        return answer_key.replace('{U}', str(uid)).strip()
-    return answer_key.strip()
+        line = line.replace('{U}', str(uid).strip())
+    if username is not None:
+        line = line.replace('{USERNAME}', str(username).strip())
+    return line
 
 
 def update_general_feedback(general_feedback, student_feedback, grading_scheme):
@@ -268,6 +274,9 @@ def update_general_feedback(general_feedback, student_feedback, grading_scheme):
     """
 
     general_feedback["total_students"] += 1
+
+    if "passing_students" not in general_feedback:
+        general_feedback["passing_students"] = 0
 
     for student_task_feedback in student_feedback["feedback"]:
         task_name = student_task_feedback["task"]
@@ -297,6 +306,7 @@ def update_general_feedback(general_feedback, student_feedback, grading_scheme):
 
     # Calculate overall total points for all tasks
     total_points = sum(line["points"] for task in grading_scheme["tasks"] for line in task["lines"])
+    #total_points = sum(task["task_total_points"] for task in general_feedback["tasks"])
     general_feedback["total_points"] = total_points
 
 
@@ -311,8 +321,12 @@ def update_general_feedback(general_feedback, student_feedback, grading_scheme):
     general_feedback["average_score"] = round(total_earned_points / total_points if total_points > 0 else 0, 2)
 
     # Calculate pass rate
-    passing_students = sum(1 for task in general_feedback["tasks"] if task["task_earned_points"] / task["task_total_points"] >= 0.5)
-    general_feedback["pass_rate"] = round(passing_students / general_feedback["total_students"], 2)
+    student_total_score = student_feedback["earned_points"]
+
+    if student_total_score >= 0.5 * total_points:
+        general_feedback["passing_students"] += 1
+
+    general_feedback["pass_rate"] = round(general_feedback["passing_students"] / general_feedback["total_students"], 2)
 
 
 def evaluate_student_data(student, student_data, grading_scheme):
@@ -347,7 +361,7 @@ def evaluate_student_data(student, student_data, grading_scheme):
         }
 
         for line in task["lines"]:
-            answer_key_line = preprocess_answer_key_for_student(line["line"], uid)
+            answer_key_line = preprocess_line_for_student(line["line"], student)
             points = line["points"]
 
             results["total_points"] += points
@@ -360,8 +374,6 @@ def evaluate_student_data(student, student_data, grading_scheme):
                 task_feedback["correctness"].append(0)
                 task_feedback["score"].append(0)
 
-        #results["total_points"] += len(task_feedback["score"])
-        #results["earned_points"] += sum(task_feedback["score"])
         results["feedback"].append(task_feedback)
 
     return results
@@ -429,10 +441,9 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
                 line_points = grading_task["lines"][i]["points"] if i < len(grading_task["lines"]) else 0
 
 
-                # Replace {U} with the student's UID in details and feedbacks if UID is not NONE
-                if student.get('uid') and student['uid'] != 'NONE':
-                    detail = detail.replace("{U}", student['uid'])
-                    feedback = feedback.replace("{U}", student['uid'])
+                # Use the preprocess_line_for_student function
+                detail = preprocess_line_for_student(detail, student)
+                feedback = preprocess_line_for_student(feedback, student)
 
                 row = [
                     task_name if i == 0 else '',              # Only show the task name once
