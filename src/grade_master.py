@@ -22,9 +22,7 @@ import yaml
 from datetime import datetime
 import csv
 
-
 SPECIAL_CHAR = "#"
-
 
 def parse_special_line(line):
     """
@@ -91,6 +89,7 @@ def convert_answer_key_to_yaml(answer_key_path, output_path):
         "lab": "NONE",
         "professor": "NONE",
         "files": "NONE",
+        "total_points": 0.0,
         "tasks": []
     }
     current_task = None
@@ -98,7 +97,7 @@ def convert_answer_key_to_yaml(answer_key_path, output_path):
     try:
         with open(answer_key_path, 'r') as file:
             # Read the first few lines for course, lab, professor, and files
-            for _ in range(4):
+            for _ in range(5):
                 line = file.readline().strip()
                 if not line:
                     break
@@ -111,8 +110,8 @@ def convert_answer_key_to_yaml(answer_key_path, output_path):
                     grading_scheme["professor"] = value
                 elif keyword == "FILES":
                     grading_scheme["files"] = value
-
-            logging.debug(f"Initial course, lab, professor: {grading_scheme}")
+                elif keyword == "TOTAL":
+                    grading_scheme["total_points"] = float(value)
 
             # Process the remaining lines for tasks
             for line in file:
@@ -186,6 +185,7 @@ def read_student_files(username, file_name, data_directory):
     logging.debug(f"{username} data for {filename}:  {student_data}")
 
     return student_data
+
 
 def load_students(students_file):
     """
@@ -273,6 +273,15 @@ def update_general_feedback(general_feedback, student_feedback, grading_scheme):
         grading_scheme (dict): The grading scheme containing tasks and lines to match.
     """
 
+    """
+    Updates the general feedback structure with the results from a student's feedback.
+
+    Args:
+        general_feedback (dict): The general feedback structure.
+        student_feedback (dict): The feedback from a single student.
+        grading_scheme (dict): The grading scheme containing tasks and lines to match.
+    """
+
     general_feedback["total_students"] += 1
 
     if "passing_students" not in general_feedback:
@@ -298,7 +307,7 @@ def update_general_feedback(general_feedback, student_feedback, grading_scheme):
         # Find the corresponding task in the grading scheme
         grading_task = next((task for task in grading_scheme["tasks"] if task["task"] == task_name), None)
         if grading_task:
-            # Update the scores and feedback summary
+            # Update the scores
             for i, score in enumerate(scores):
                 task_feedback["scores"][i] += score
                 task_feedback["task_earned_points"] += score
@@ -318,7 +327,7 @@ def update_general_feedback(general_feedback, student_feedback, grading_scheme):
     # Calculate overall average score
     total_earned_points = sum(task["task_earned_points"] for task in general_feedback["tasks"])
     general_feedback["total_score"] = total_earned_points
-    general_feedback["average_score"] = round(total_earned_points / total_points if total_points > 0 else 0, 2)
+    general_feedback["average_score"] = round(total_earned_points / general_feedback["total_students"] if general_feedback["total_students"] > 0 else 0, 2)
 
     # Calculate pass rate
     student_total_score = student_feedback["earned_points"]
@@ -510,7 +519,13 @@ def parse_arguments():
 def main():
     """
     Main function to run the GradeMaster script.
-    Parses arguments, validates directories and files, converts the answer key to a YAML grading scheme, loads students, evaluates their data, and saves feedback.
+    Parses arguments,
+    validates directories and files,
+    converts the answer key to a YAML grading scheme,
+    loads students data,
+    evaluates their data aginst grading scheme,
+    creates general feedback and
+    saves feedback.
     """
 
     # Parse arguments
@@ -558,7 +573,6 @@ def main():
 
     convert_answer_key_to_yaml(answer_key_path, grading_scheme_path)
 
-
    # Load grading scheme
     with open(grading_scheme_path, 'r') as yamlfile:
         grading_scheme = yaml.safe_load(yamlfile)
@@ -572,7 +586,7 @@ def main():
         logging.error("No FILES keyword found in the answer_key.")
         sys.exit(1)
 
-    # Initialize general feedback
+        # Initialize general feedback
     general_feedback = {
         "total_students": 0,
         "average_score": 0,
@@ -583,6 +597,8 @@ def main():
     for student in students:
         username = student['username']
         uid = student['uid']
+
+        # Load student data
         student_data = read_student_files(username, file_name, submissions_dir)
 
         # Evaluate the student's data
