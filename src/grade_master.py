@@ -138,14 +138,14 @@ def convert_answer_key_to_yaml(answer_key_path, output_path):
 
     """
 
-    grading_scheme = {
-        "course": "NONE",
-        "lab": "NONE",
-        "professor": "NONE",
-        "files": "NONE",
-        "total_points": 0.0,
-        "tasks": []
-    }
+    grading_scheme = OrderedDict([
+        ("course", "NONE"),
+        ("professor", "NONE"),
+        ("lab", "NONE"),
+        ("files", "NONE"),
+        ("total_points", 0.0),
+        ("tasks", [])
+    ])
     current_task = None
 
     try:
@@ -180,7 +180,12 @@ def convert_answer_key_to_yaml(answer_key_path, output_path):
                     if keyword == "TASK":
                         if current_task:
                             grading_scheme["tasks"].append(current_task)
-                        current_task = {"task": value, "lines": []}
+
+                        # Use OrderedDict to ensure "task" appears first, followed by "lines"
+                        current_task = OrderedDict([
+                            ("task", value),
+                            ("lines", [])
+                        ])
                     elif keyword == "DETAIL":
                         if current_task and current_task["lines"]:
                             current_task["lines"][-1]["detail"] = value

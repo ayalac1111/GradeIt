@@ -2,22 +2,7 @@
 
 This document outlines planned modifications and features to be implemented in GradeMaster.
 
-## Student Feedback Structure Modifications
-### **Rationale:**
-- **Objective:** Introduce students to the YAML file format, which is widely used in automation and configuration management.
-- **Impact:** By exposing students to YAML, we prepare them for industry-standard tools and practices, such as Ansible and Kubernetes, where YAML is frequently used. It also facilitates easier data manipulation and integration with other tools or scripts in an automated environment.
-- **Priority**:  1
-- [ ] Create a YAML feedback structure for each student.
-	- [ ] Course information
-	- [ ] Lab Information
-	- [ ] Student Feedback
-		- [ ] Task name
-		- [ ] Line ( should be called something else )
-		- [ ] Points
-		- [ ] Feedback ( if the points were 0 )
-- [x] Modify student feedback structure:
-  - [x] Create an array per task of 1 or 0 instead of duplicating details/feedback from the `answer_key`.
-  - [x] Update all functions that handle the student feedback structure to accommodate this new format.
+
 
 ## General Feedback Structure - Ongoing
 ### **Rationale:**
@@ -28,7 +13,7 @@ This document outlines planned modifications and features to be implemented in G
 - [x] Create a general feedback structure to:
   - [x] Use a similar feedback structure as for individual students.
   - [x] Keep track of all students' feedback to identify common strengths and weaknesses.
-  - [ ] Analyze areas where students collectively faced the most challenges.
+  - [x] Analyze areas where students collectively faced the most challenges.
 
 ## Integration of AND and OR Lines in Grading
 ### **Rationale:**
@@ -74,6 +59,23 @@ This document outlines planned modifications and features to be implemented in G
 This plan will guide the development and enhancement of GradeMaster to make it more versatile and user-friendly.
 
 ## **Completed**
+
+## Student Feedback Structure Modifications
+### **Rationale:**
+- **Objective:** Introduce students to the YAML file format, which is widely used in automation and configuration management.
+- **Impact:** By exposing students to YAML, we prepare them for industry-standard tools and practices, such as Ansible and Kubernetes, where YAML is frequently used. It also facilitates easier data manipulation and integration with other tools or scripts in an automated environment.
+- **Priority**:  1
+- [x] Create a YAML feedback structure for each student.
+	- [x] Course information
+	- [x] Lab Information
+	- [x] Student Feedback
+		- [x] Task name
+		- [x] Line ( should be called something else )
+		- [x] Points
+		- [x] Feedback ( if the points were 0 )
+- [x] Modify student feedback structure:
+  - [x] Create an array per task of 1 or 0 instead of duplicating details/feedback from the `answer_key`.
+  - [x] Update all functions that handle the student feedback structure to accommodate this new format.
 ## Command Line Modifications
 - [x] Modify command line options to include:
   - [x] Read `answer_key` name (instead of assuming a fixed name).
