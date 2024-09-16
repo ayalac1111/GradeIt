@@ -27,11 +27,10 @@ from collections import OrderedDict
 
 SPECIAL_CHAR = "#"
 
-import yaml
-from collections import OrderedDict
 
 def represent_ordereddict(dumper, data):
     return dumper.represent_dict(data.items())
+
 
 def parse_special_line(line):
     """
@@ -50,7 +49,7 @@ def parse_special_line(line):
     # match.group(3): Captures the value (in the first regex).
 
     # First regular expression pattern to match lines that start with #[<points>] <value>
-    match = re.match(r"^#\[\s*(\d+(\.\d+)?)\s*\](.*)", line)
+    match = re.match(r"^#\[\s*(\d+(\.\d+)?)\s*](.*)", line)
     # ^#\[ matches the beginning of the line followed by #[.
     # \s* matches any whitespace characters (spaces, tabs) zero or more times.
     # (\d+(\.\d+)?) captures one or more digits followed optionally by a decimal point and one or more digits,
@@ -68,7 +67,7 @@ def parse_special_line(line):
         return points, value
     else:
         # Second regular expression pattern to match lines that start with #[<keyword>: <value>]
-        match = re.match(r"^#\[\s*(\w+)\s*:\s*(.*?)\s*\]", line)
+        match = re.match(r"^#\[\s*(\w+)\s*:\s*(.*?)\s*]", line)
         # ^#\[ matches the beginning of the line followed by #[.
         # \s* matches any whitespace characters zero or more times.
         # (\w+) captures one or more word characters (letters, digits, underscores) as the keyword.
@@ -279,7 +278,7 @@ def read_student_files(username, file_name, data_directory):
     return student_data
 
 
-def load_students(students_file):
+def load_students(grade_master_paths):
     """
     Loads student data from a CSV file.
 
@@ -288,7 +287,7 @@ def load_students(students_file):
     for associating student submissions with their respective identifiers during the grading process.
 
     Args:
-        students_file (str): The path to the students CSV file.
+        grade_master_paths (dict): GradeMaster arguments.
 
     Returns:
         list: A list of dictionaries with 'username' and 'uid'.
@@ -344,6 +343,9 @@ def load_students(students_file):
       structure or naming conventions for student files change, corresponding updates may be required in how
       student data is utilized throughout the grading script.
     """
+
+    students_file = grade_master_paths['students_file']
+
     students = []
     with open(students_file, 'r') as file:
         csv_reader = csv.reader(file)
@@ -370,7 +372,7 @@ def match_line(student_line, answer_key_line):
 
     answer_key_line = re.sub(r'\s+', r'\\s*', answer_key_line)
 
-        # Add debug logging to see what is being matched
+    # Add debug logging to see what is being matched
     logging.debug(f"Matching pattern: {answer_key_line}")
     logging.debug(f"Against line: {student_line}")
 
@@ -417,6 +419,9 @@ def update_general_feedback(general_feedback, student_feedback, grading_scheme):
         student_feedback (dict): The feedback from a single student.
         grading_scheme (dict): The grading scheme containing tasks and lines to match.
     """
+    if student_feedback is None:
+        general_feedback["no_submission"] = general_feedback.get("no_submission", 0) + 1
+        return
 
     general_feedback["total_students"] += 1
 
@@ -486,7 +491,10 @@ def evaluate_student_data(student, student_data, grading_scheme):
         dict: The evaluation results, including total points and feedback.
     """
 
+    logging.info(f"Evaluating for {student['username']}")
+
     if not student_data.strip():
+        logging.info("Nothing to report")
         return None
 
     results = {
@@ -495,12 +503,10 @@ def evaluate_student_data(student, student_data, grading_scheme):
         "feedback": []
     }
 
-    uid = student.get('uid', 'NONE')
-
     for task in grading_scheme["tasks"]:
         task_feedback = {
             "task": task["task"],
-             "correctness": [],
+            "correctness": [],
             "score": []
         }
 
@@ -525,16 +531,17 @@ def evaluate_student_data(student, student_data, grading_scheme):
 
 def save_student_feedback(student, results, grading_scheme, output_dir, output_format="yaml"):
     """
-    Saves feedback for the student in a text file using the tabulate package.
+    Saves feedback for the student in a text file or YAML format.
 
     Args:
-        results (dict): The evaluation results.
+        results (dict): The evaluation results (None if no submission).
         grading_scheme (dict): The grading scheme.
         student (dict): A dictionary with 'username' and 'uid'.
         output_dir (str): The directory where the feedback file should be saved.
-        output_format(str):  Desired output format.
+        output_format(str): Desired output format (default: yaml).
     """
     # Extract course, lab, and professor information from the grading scheme
+
     course = grading_scheme.get('course', 'Unknown Course')
     lab = grading_scheme.get('lab', 'Unknown Lab')
     professor = grading_scheme.get('professor', 'Unknown Professor')
@@ -542,108 +549,68 @@ def save_student_feedback(student, results, grading_scheme, output_dir, output_f
     feedback_filename = f"{student['username']}-feedback"
     feedback_filepath = os.path.join(output_dir, feedback_filename)
 
-    if results is None:
-        # file.write("No submission or empty submission\n")
-        logging.info(f"No submission or empty submission for student {student['username']}")
-        return
+    # Initialize feedback_data with default values
+    feedback_data = OrderedDict([
+        ("course", [
+            {"course_name": course},
+            {"professor": professor}
+        ]),
+        ("lab", [
+            {"lab_name": lab},
+            {"graded_on": datetime.now().strftime('%a %d %b %Y %H:%M:%S %Z')},
+            {"earned_points": 0},
+            {"total_points": grading_scheme.get('total_points', 0)},
+            {"lab_grade": "0%"}
+        ]),
+        ("student", student),
+        ("feedback", "No submission found or incorrect submission format.")
+    ])
 
-    processed_feedback = []
-    for task_result in results['feedback']:
-        task_name = task_result.get('task', 'Unknown Task')
-        scores = task_result.get('score', [])
+    # If there are results, update the feedback_data
+    if results:
+        # Calculate earned points, total points, and lab grade
+        earned_points = results.get('earned_points', 0)
+        total_points = grading_scheme.get('total_points', 0)
+        lab_grade = (earned_points / total_points) * 100 if total_points > 0 else 0
 
-        # Find the task in the grading scheme
-        grading_task = next((task for task in grading_scheme["tasks"] if task["task"] == task_name), None)
-        if grading_task:
-            details = [line.get("detail", "") for line in grading_task["lines"]]
-            feedbacks = [line.get("feedback", "") for line in grading_task["lines"]]
+        processed_feedback = []
+        for task_result in results['feedback']:
+            task_name = task_result.get('task', 'Unknown Task')
+            correctness = task_result.get('correctness', [])
 
-            task_feedback = {
-                "task": task_name,
-                "results": []
-            }
+            # Find the task in the grading scheme
+            grading_task = next((task for task in grading_scheme["tasks"] if task["task"] == task_name), None)
+            if grading_task:
+                details = [line.get("detail", "") for line in grading_task["lines"]]
+                feedbacks = [line.get("feedback", "") for line in grading_task["lines"]]
 
-            for i, score in enumerate(scores):
-                detail = details[i] if i < len(details) else ''
-                feedback = feedbacks[i] if i < len(feedbacks) else ''
+                task_feedback = OrderedDict([
+                    ("task", task_name),
+                    ("results", [])
+                ])
 
-                # Replace {U} with the student's UID in details and feedbacks if UID is not NONE
-                # Use the preprocess_line_for_student function
-                detail = preprocess_line_for_student(detail, student)
-                feedback = preprocess_line_for_student(feedback, student)
-                # if student.get('uid') and student['uid'] != 'NONE':
-                #    detail = detail.replace("{U}", student['uid'])
-                #    feedback = feedback.replace("{U}", student['uid'])
+                for i, correct in enumerate(correctness):
+                    detail = details[i] if i < len(details) else ''
+                    feedback = feedbacks[i] if i < len(feedbacks) else ''
 
-                if score == 1:
-                    task_feedback["results"].append(detail)
-                else:
-                    task_feedback["results"].append(feedback)
+                    # Replace {U} with the student's UID in details and feedbacks if UID is not NONE
+                    detail = preprocess_line_for_student(detail, student)
+                    feedback = preprocess_line_for_student(feedback, student)
 
-            processed_feedback.append(task_feedback)
+                    task_feedback["results"].append(detail if correct == 1 else feedback)
 
-    if output_format == "yaml":
-        # Prepare the YAML structure
-        feedback_data = OrderedDict([
-            ("course", [
-                {"course_name": course},
-                {"professor": professor}
-            ]),
-            ("lab", [
-                {"lab_name": lab},
-                {"graded_on": datetime.now().strftime('%a %d %b %Y %H:%M:%S %Z')},
-                {"earned_points": results.get('earned_points', 0)},
-                {"total_points": grading_scheme.get('total_points', 0)},
-            ]),
-            ("student", student),
-            ("feedback", processed_feedback),
-        ])
+                processed_feedback.append(task_feedback)
 
-        # Save feedback as YAML
-        with open(f"{feedback_filepath}.yaml", 'w') as file:
-            yaml.dump(feedback_data, file, default_flow_style=False)
-        logging.info(f"Feedback saved to {feedback_filepath}.yaml")
+        # Update feedback_data with results
+        feedback_data["lab"][2]["earned_points"] = earned_points
+        feedback_data["lab"][3]["total_points"] = total_points
+        feedback_data["lab"][4]["lab_grade"] = f"{round(lab_grade, 2)}%"
+        feedback_data["feedback"] = processed_feedback
 
-    else:  # Default to text format
-        with open(f"{feedback_filepath}.txt", 'w') as file:
-            file.write(f"{course} - {lab}\n")
-            file.write(f"+{'-' * 68}+\n")
-            file.write(f"|  Marked on {datetime.now().strftime('%a %d %b %Y %H:%M:%S %z')}\n")
-            file.write(f"|  Marked by {professor}\n")
-            file.write(f"|  Student ID {student['username']}\n")
-            file.write(f"+{'-' * 68}+\n\n")
-
-            headers = ["Task", "Detail/Feedback", "Earned", "Points"]
-            table = []
-
-            # Add logging to debug the structure of the results
-            logging.debug(f"Results structure: {results}")
-
-            for task_result in processed_feedback:
-                task_name = task_result['task']
-                task_details = task_result['results']
-
-                for i, detail_or_feedback in enumerate(task_details):
-                    row = [
-                        task_name if i == 0 else '',  # Only show the task name once
-                        detail_or_feedback,  # Show detail or feedback
-                        results['earned_points'] if i == 0 else '',  # Only show earned points once per task
-                        results['total_points'] if i == 0 else ''  # Only show total points once per task
-                    ]
-                    table.append(row)
-                    task_name = ''  # Only show the task name once
-
-                table.append(["", "", "", ""])
-
-            # Add a separator line and total and earned points at the end
-            table.append(["", "", "", ""])
-            table.append(["Total Points", "", results['earned_points'], results['total_points']])
-
-            # Write the table to the file with column alignment
-            file.write(
-                tabulate(table, headers=headers, tablefmt="pretty", colalign=("left", "left", "center", "center")))
-
-        logging.debug(f"Feedback saved to {feedback_filepath}.txt")
+    # Save feedback as YAML
+    with open(f"{feedback_filepath}.yaml", 'w') as file:
+        yaml.dump(feedback_data, file, default_flow_style=False)
+    logging.info(f"Feedback saved to {feedback_filepath}.yaml")
 
 
 def save_student_results_to_csv(student, results, lab_name, output_dir):
@@ -661,18 +628,17 @@ def save_student_results_to_csv(student, results, lab_name, output_dir):
     # Check if the file already exists
     file_exists = os.path.isfile(csv_file)
 
-    with open(csv_file, 'a', newline='') as file:
+    # Ensure results is not None and set earned_points to 0 if results is None
+    earned_points = results['earned_points'] if results is not None and 'earned_points' in results else 0
+
+    with (open(csv_file, 'a', newline='') as file):
         writer = csv.writer(file)
         if not file_exists:
             # Write header if the file doesn't exist
             writer.writerow(['username', 'earned_points'])
 
-        # Ensure results is not None and has 'earned_points'
-        earned_points = results['earned_points'] if results and 'earned_points' in results else 0
-
         # Write the student's result
-        writer.writerow([student['username'], results['earned_points']])
-        # writer.writerow([f'#{student['username']}, {results['earned_points']}#'])
+        writer.writerow([student['username'], earned_points])
 
     logging.debug(f"Results saved to {csv_file}")
 
@@ -684,114 +650,141 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def main():
-    """
-    Main function to run the GradeMaster script.
-    Parses arguments,
-    validates directories and files,
-    converts the answer key to a YAML grading scheme,
-    load all students from the csv file with their variables
-    For each student
-        load student data,
-        evaluates their data against grading scheme,
-        update general feedback
-        saves student feedback
-    save general feedback
-    """
-
-    # Parse arguments
-    args = parse_arguments()
-
-    root_dir = args.root_dir
-    lab_name = args.lab
-
-    # Set up logging
+def configure_globals():
+    """Sets up logging and YAML configuration."""
     logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
-
     yaml.add_representer(OrderedDict, represent_ordereddict)
 
-    lab_dir = os.path.join(root_dir, 'Labs', lab_name)
-    submissions_dir = os.path.join(lab_dir, 'submissions')
-    feedback_dir = os.path.join(lab_dir, 'feedback')
-    answer_key_file = f"{lab_name}_answer_key.txt"
-    grades_file = f"{lab_name}_grades.csv"
-    grading_scheme_file = f"{lab_name}_grading_scheme.yaml"
 
-    # Validate directories and files
-    if not os.path.isdir(lab_dir):
-        logging.error(f"The lab directory '{lab_dir}' does not exist.")
+def validate_directories_and_files(grade_master_paths):
+    """
+    Validates that all necessary directories and files exist based on the paths provided in grade_master_paths.
+
+    Args:
+        grade_master_paths (dict): Dictionary containing paths to directories and files that need to be validated.
+
+    Raises:
+        SystemExit: If any of the required directories or files do not exist.
+    """
+    # Validate lab directory
+    if not os.path.isdir(grade_master_paths['lab_dir']):
+        logging.error(f"The lab directory '{grade_master_paths['lab_dir']}' does not exist.")
         sys.exit(1)
 
-    if not os.path.isdir(submissions_dir):
-        logging.error(f"The submissions directory '{submissions_dir}' does not exist.")
+    # Validate submissions directory
+    if not os.path.isdir(grade_master_paths['submissions_dir']):
+        logging.error(f"The submissions directory '{grade_master_paths['submissions_dir']}' does not exist.")
         sys.exit(1)
 
-    if not os.path.isdir(feedback_dir):
-        os.makedirs(feedback_dir)
+    # Validate feedback directory, create it if it doesn't exist
+    if not os.path.isdir(grade_master_paths['feedback_dir']):
+        logging.info(f"The feedback directory '{grade_master_paths['feedback_dir']}' does not exist. Creating it.")
+        os.makedirs(grade_master_paths['feedback_dir'])
 
-    answer_key_path = os.path.join(lab_dir, answer_key_file)
-    if not os.path.isfile(answer_key_path):
-        logging.error(f"The answer key file '{answer_key_path}' does not exist.")
+    # Validate answer key file
+    if not os.path.isfile(grade_master_paths['answer_key_path']):
+        logging.error(f"The answer key file '{grade_master_paths['answer_key_path']}' does not exist.")
         sys.exit(1)
 
-    students_file = os.path.join(root_dir, 'students.csv')
-    if not os.path.isfile(students_file):
-        logging.error(f"The students.csv file '{students_file}' does not exist.")
+    # Validate students CSV file
+    if not os.path.isfile(grade_master_paths['students_file']):
+        logging.error(f"The students.csv file '{grade_master_paths['students_file']}' does not exist.")
         sys.exit(1)
 
-    logging.info(f"All required files are present in '{lab_dir}' and '{submissions_dir}' directories.")
+    logging.info(f"All required files and directories are present.")
 
-    # Convert answer_key.txt to grading_scheme.yaml
-    grading_scheme_path = os.path.join(lab_dir, grading_scheme_file)
 
-    convert_answer_key_to_yaml(answer_key_path, grading_scheme_path)
+def load_grading_scheme(grade_master_path):
+    """Converts the answer key to YAML and loads the grading scheme."""
 
-    # Load grading scheme
-    with open(grading_scheme_path, 'r') as yamlfile:
-        grading_scheme = yaml.safe_load(yamlfile)
+    answer_key_path = grade_master_path['answer_key_path']
+    grading_scheme_file = grade_master_path['grading_scheme_path']
 
-    # Load students
-    students = load_students(students_file)
+    convert_answer_key_to_yaml(answer_key_path, grading_scheme_file)
+    with open(grading_scheme_file, 'r') as yamlfile:
+        return yaml.safe_load(yamlfile)
 
-    # Read and process student files
-    file_name = grading_scheme.get("files")
-    if file_name == "NONE":
-        logging.error("No FILES keyword found in the answer_key.")
-        sys.exit(1)
 
-        # Initialize general feedback
-    general_feedback = {
+def initialize_general_feedback():
+    """Initializes the general feedback structure."""
+    return {
         "total_students": 0,
         "average_score": 0,
         "pass_rate": 0,
         "tasks": []
     }
 
+
+def process_students(students, paths, grading_scheme, general_feedback):
+    """Processes each student's submission, evaluates it, and updates feedback structures."""
+
+    file_name = grading_scheme.get("files")
+    if file_name == "NONE":
+        logging.error("No FILES keyword found in the answer_key.")
+        sys.exit(1)
+
     for student in students:
         username = student['username']
-        # uid = student['uid']
-
-        # Load student data
-        student_data = read_student_files(username, file_name, submissions_dir)
+        student_data = read_student_files(username, file_name, paths['submissions_dir'])
 
         # Evaluate the student's data
         results = evaluate_student_data(student, student_data, grading_scheme)
+        save_student_feedback(student, results, grading_scheme, paths['feedback_dir'], output_format="yaml")
+        update_general_feedback(general_feedback, results, grading_scheme)
+        save_student_results_to_csv(student, results, paths['lab_name'], paths['lab_dir'])
 
-        logging.debug(f"Results for student {username}: {results}")
-
-        # Save student feedback only if results are not None
-        if results:
-            save_student_feedback(student, results, grading_scheme, feedback_dir, output_format="yaml")
-            update_general_feedback(general_feedback, results, grading_scheme)
-            save_student_results_to_csv(student, results, lab_name, lab_dir)
-        else:
+        if results is None:
             logging.info(f"No submission or empty submission for student {username}")
-            save_student_results_to_csv(student, {"earned_points": 0}, lab_name, lab_dir)
 
-    # Save general feedback to a file
+
+def save_general_feedback(general_feedback, paths, lab_name):
+    """Saves the general feedback to a file."""
+
+    lab_dir = paths['lab_dir']
     general_feedback_file = os.path.join(lab_dir, f'{lab_name}_general_feedback.yaml')
     with open(general_feedback_file, 'w') as yamlfile:
         yaml.dump(general_feedback, yamlfile, default_flow_style=False)
+
+
+def create_grade_master_paths(args):
+    """Creates a dictionary of necessary paths based on parsed arguments."""
+    lab_dir = os.path.join(args.root_dir, 'Labs', args.lab)
+    return {
+        'root_dir': args.root_dir,
+        'lab_name': args.lab,
+        'lab_dir': lab_dir,
+        'submissions_dir': os.path.join(lab_dir, 'submissions'),
+        'feedback_dir': os.path.join(lab_dir, 'feedback'),
+        'answer_key_path': os.path.join(lab_dir, f"{args.lab}_answer_key.txt"),
+        'grading_scheme_path': os.path.join(lab_dir, f"{args.lab}_grading_scheme.yaml"),
+        'students_file': os.path.join(args.root_dir, 'students.csv')
+    }
+
+
+def main():
+    """
+
+    1. Parse arguments
+    1. - A Create configuration dictionary
+    2. Setup logging & YAML
+    3.- validates directories and files,
+    4. Convert answer_key.txt to grading_scheme.yaml and load it
+    5. Load students
+    6. Initialize general feedback
+    7. Process each student
+    8. Save general feedback
+
+    """
+
+    args = parse_arguments()
+    grade_master_paths = create_grade_master_paths(args)
+    configure_globals()
+    validate_directories_and_files(grade_master_paths)
+    grading_scheme = load_grading_scheme(grade_master_paths)
+    students = load_students(grade_master_paths)
+    general_feedback = initialize_general_feedback()
+    process_students(students, grade_master_paths, grading_scheme, general_feedback)
+    save_general_feedback(general_feedback, grade_master_paths, args.lab)
 
 
 if __name__ == "__main__":
