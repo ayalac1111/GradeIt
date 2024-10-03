@@ -7,7 +7,7 @@ This script converts an answer key to a grading scheme, evaluates student data,
 and generates feedback.
 
 Usage:
-    python grade_master.py answer_key_dir student_data_dir
+    python grade_it.py answer_key_dir student_data_dir
 
 Author: C. Ayala - ayalac@algonquincollege.com
 Date: July 10th 2024
@@ -21,7 +21,6 @@ import re
 import yaml
 from datetime import datetime
 import csv
-from tabulate import tabulate
 from collections import OrderedDict
 
 
@@ -87,7 +86,7 @@ def parse_special_line(line):
     return None, None
 
 
-def convert_answer_key_to_yaml(answer_key_path, output_path):
+def convert_answer_key_to_yaml(answer_key_file, output_path):
     """
     Converts an answer key file to a YAML grading scheme.
 
@@ -96,7 +95,7 @@ def convert_answer_key_to_yaml(answer_key_path, output_path):
     each with associated lines that include details, feedback, and points.
 
     Args:
-        answer_key_path (str): The path to the answer key file.
+        answer_key_file (str): The path to the answer key file.
         output_path (str): The path to the output YAML file.
 
     YAML Structure:
@@ -148,7 +147,7 @@ def convert_answer_key_to_yaml(answer_key_path, output_path):
     current_task = None
 
     try:
-        with open(answer_key_path, 'r') as file:
+        with open(answer_key_file, 'r') as file:
             # Read the first FIVE lines for course, lab, professor, and files
             # These lines should always be present in the answer_key
             for _ in range(5):
@@ -210,10 +209,10 @@ def convert_answer_key_to_yaml(answer_key_path, output_path):
         with open(output_path, 'w') as yamlfile:
             yaml.dump(grading_scheme, yamlfile, default_flow_style=False)
 
-        logging.info(f"Successfully converted {answer_key_path} to {output_path}")
+        logging.info(f"Successfully converted {answer_key_file} to {output_path}")
 
     except FileNotFoundError:
-        logging.error(f"File not found: {answer_key_path}")
+        logging.error(f"File not found: {answer_key_file}")
     except Exception as e:
         logging.error(f"An error occurred: {e}")
 
@@ -278,7 +277,7 @@ def read_student_files(username, file_name, data_directory):
     return student_data
 
 
-def load_students(grade_master_paths):
+def load_students(grade_it_paths):
     """
     Loads student data from a CSV file.
 
@@ -287,7 +286,7 @@ def load_students(grade_master_paths):
     for associating student submissions with their respective identifiers during the grading process.
 
     Args:
-        grade_master_paths (dict): GradeMaster arguments.
+        grade_it_paths (dict): GradeMaster arguments.
 
     Returns:
         list: A list of dictionaries with 'username' and 'uid'.
@@ -344,7 +343,7 @@ def load_students(grade_master_paths):
       student data is utilized throughout the grading script.
     """
 
-    students_file = grade_master_paths['students_file']
+    students_file = grade_it_paths['students_file']
 
     students = []
     with open(students_file, 'r') as file:
@@ -529,7 +528,7 @@ def evaluate_student_data(student, student_data, grading_scheme):
     return results
 
 
-def save_student_feedback(student, results, grading_scheme, output_dir, output_format="yaml"):
+def save_student_feedback(student, results, grading_scheme, output_dir):
     """
     Saves feedback for the student in a text file or YAML format.
 
@@ -538,7 +537,6 @@ def save_student_feedback(student, results, grading_scheme, output_dir, output_f
         grading_scheme (dict): The grading scheme.
         student (dict): A dictionary with 'username' and 'uid'.
         output_dir (str): The directory where the feedback file should be saved.
-        output_format(str): Desired output format (default: yaml).
     """
     # Extract course, lab, and professor information from the grading scheme
 
@@ -613,17 +611,15 @@ def save_student_feedback(student, results, grading_scheme, output_dir, output_f
     logging.info(f"Feedback saved to {feedback_filepath}.yaml")
 
 
-def save_student_results_to_csv(student, results, lab_name, output_dir):
+def save_student_results_to_csv(student, results, paths):
     """
     Save the student's results to a CSV file.
 
     Args:
         student (dict): A dictionary with 'username' and 'uid'.
         results (dict): The evaluation results.
-        lab_name (str): The name of the lab.
-        output_dir (str): The directory where the results file should be saved.
     """
-    csv_file = os.path.join(output_dir, f"{lab_name}-grades.csv")
+    csv_file = paths["grades_csv_file"]
 
     # Check if the file already exists
     file_exists = os.path.isfile(csv_file)
@@ -643,64 +639,53 @@ def save_student_results_to_csv(student, results, lab_name, output_dir):
     logging.debug(f"Results saved to {csv_file}")
 
 
-def parse_arguments():
-    parser = argparse.ArgumentParser(description='GradeMaster: A flexible grading tool based on an answer key.')
-    parser.add_argument('root_dir', type=str, help='The root directory for the course.')
-    parser.add_argument('lab', type=str, help='The lab number or name.')
-    return parser.parse_args()
-
-
 def configure_globals():
     """Sets up logging and YAML configuration."""
     logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
     yaml.add_representer(OrderedDict, represent_ordereddict)
 
 
-def validate_directories_and_files(grade_master_paths):
+def validate_directories_and_files(grade_it_paths):
     """
-    Validates that all necessary directories and files exist based on the paths provided in grade_master_paths.
+    Validates that all necessary directories and files exist based on the paths provided in grade_it_paths.
 
     Args:
-        grade_master_paths (dict): Dictionary containing paths to directories and files that need to be validated.
+        grade_it_paths (dict): Dictionary containing paths to directories and files that need to be validated.
 
     Raises:
         SystemExit: If any of the required directories or files do not exist.
     """
-    # Validate lab directory
-    if not os.path.isdir(grade_master_paths['lab_dir']):
-        logging.error(f"The lab directory '{grade_master_paths['lab_dir']}' does not exist.")
-        sys.exit(1)
 
     # Validate submissions directory
-    if not os.path.isdir(grade_master_paths['submissions_dir']):
-        logging.error(f"The submissions directory '{grade_master_paths['submissions_dir']}' does not exist.")
+    if not os.path.isdir(grade_it_paths['submissions_dir']):
+        logging.error(f"The submissions directory '{grade_it_paths['submissions_dir']}' does not exist.")
         sys.exit(1)
 
     # Validate feedback directory, create it if it doesn't exist
-    if not os.path.isdir(grade_master_paths['feedback_dir']):
-        logging.info(f"The feedback directory '{grade_master_paths['feedback_dir']}' does not exist. Creating it.")
-        os.makedirs(grade_master_paths['feedback_dir'])
+    if not os.path.isdir(grade_it_paths['feedback_dir']):
+        logging.info(f"The feedback directory '{grade_it_paths['feedback_dir']}' does not exist. Creating it.")
+        os.makedirs(grade_it_paths['feedback_dir'])
 
     # Validate answer key file
-    if not os.path.isfile(grade_master_paths['answer_key_path']):
-        logging.error(f"The answer key file '{grade_master_paths['answer_key_path']}' does not exist.")
+    if not os.path.isfile(grade_it_paths['answer_key_file']):
+        logging.error(f"The answer key file '{grade_it_paths['answer_key_file']}' does not exist.")
         sys.exit(1)
 
     # Validate students CSV file
-    if not os.path.isfile(grade_master_paths['students_file']):
-        logging.error(f"The students.csv file '{grade_master_paths['students_file']}' does not exist.")
+    if not os.path.isfile(grade_it_paths['students_file']):
+        logging.error(f"The students.csv file '{grade_it_paths['students_file']}' does not exist.")
         sys.exit(1)
 
     logging.info(f"All required files and directories are present.")
 
 
-def load_grading_scheme(grade_master_path):
+def load_grading_scheme(grade_it_path):
     """Converts the answer key to YAML and loads the grading scheme."""
 
-    answer_key_path = grade_master_path['answer_key_path']
-    grading_scheme_file = grade_master_path['grading_scheme_path']
+    answer_key_file = grade_it_path['answer_key_file']
+    grading_scheme_file = grade_it_path['grading_scheme_file']
 
-    convert_answer_key_to_yaml(answer_key_path, grading_scheme_file)
+    convert_answer_key_to_yaml(answer_key_file, grading_scheme_file)
     with open(grading_scheme_file, 'r') as yamlfile:
         return yaml.safe_load(yamlfile)
 
@@ -715,7 +700,7 @@ def initialize_general_feedback():
     }
 
 
-def process_students(students, paths, grading_scheme, general_feedback):
+def grade_students_submission(students, paths, grading_scheme, general_feedback):
     """Processes each student's submission, evaluates it, and updates feedback structures."""
 
     file_name = grading_scheme.get("files")
@@ -729,62 +714,61 @@ def process_students(students, paths, grading_scheme, general_feedback):
 
         # Evaluate the student's data
         results = evaluate_student_data(student, student_data, grading_scheme)
-        save_student_feedback(student, results, grading_scheme, paths['feedback_dir'], output_format="yaml")
+        save_student_feedback(student, results, grading_scheme, paths['feedback_dir'])
         update_general_feedback(general_feedback, results, grading_scheme)
-        save_student_results_to_csv(student, results, paths['lab_name'], paths['lab_dir'])
+        save_student_results_to_csv(student, results, paths)
 
         if results is None:
             logging.info(f"No submission or empty submission for student {username}")
 
 
-def save_general_feedback(general_feedback, paths, lab_name):
+def save_general_feedback(general_feedback, paths):
     """Saves the general feedback to a file."""
 
-    lab_dir = paths['lab_dir']
-    general_feedback_file = os.path.join(lab_dir, f'{lab_name}_general_feedback.yaml')
+    general_feedback_file = paths['general_feedback_file']
     with open(general_feedback_file, 'w') as yamlfile:
         yaml.dump(general_feedback, yamlfile, default_flow_style=False)
 
 
-def create_grade_master_paths(args):
-    """Creates a dictionary of necessary paths based on parsed arguments."""
-    lab_dir = os.path.join(args.root_dir, 'Labs', args.lab)
-    return {
-        'root_dir': args.root_dir,
-        'lab_name': args.lab,
-        'lab_dir': lab_dir,
-        'submissions_dir': os.path.join(lab_dir, 'submissions'),
-        'feedback_dir': os.path.join(lab_dir, 'feedback'),
-        'answer_key_path': os.path.join(lab_dir, f"{args.lab}_answer_key.txt"),
-        'grading_scheme_path': os.path.join(lab_dir, f"{args.lab}_grading_scheme.yaml"),
-        'students_file': os.path.join(args.root_dir, 'students.csv')
-    }
+def load_config(config_path="./config.yaml"):
+    """Loads the configuration from a YAML file. Raises an error if the file is missing."""
+
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as file:
+            return yaml.safe_load(file)
+    else:
+        raise FileNotFoundError(f"Config file not found at {config_path}")
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='GradeIt: Flexible grading tool based on an answer key.')
+    parser.add_argument('--config', type=str, help='Path to the config.yaml file', default="./config.yaml" )
+    return parser.parse_args()
 
 
 def main():
     """
 
     1. Parse arguments
-    1. - A Create configuration dictionary
+    1. Load configuration from config.yaml (or specified path)
     2. Setup logging & YAML
-    3.- validates directories and files,
+    3. Validates directories and files,
     4. Convert answer_key.txt to grading_scheme.yaml and load it
     5. Load students
     6. Initialize general feedback
-    7. Process each student
+    7. Grade students submission
     8. Save general feedback
-
     """
 
     args = parse_arguments()
-    grade_master_paths = create_grade_master_paths(args)
+    grade_it_paths = load_config(args.config)
     configure_globals()
-    validate_directories_and_files(grade_master_paths)
-    grading_scheme = load_grading_scheme(grade_master_paths)
-    students = load_students(grade_master_paths)
+    validate_directories_and_files(grade_it_paths)
+    grading_scheme = load_grading_scheme(grade_it_paths)
+    students = load_students(grade_it_paths)
     general_feedback = initialize_general_feedback()
-    process_students(students, grade_master_paths, grading_scheme, general_feedback)
-    save_general_feedback(general_feedback, grade_master_paths, args.lab)
+    grade_students_submission(students, grade_it_paths, grading_scheme, general_feedback)
+    save_general_feedback(general_feedback, grade_it_paths)
 
 
 if __name__ == "__main__":
