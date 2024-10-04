@@ -2,8 +2,6 @@
 
 This document outlines planned modifications and features to be implemented in GradeMaster.
 
-
-
 ## General Feedback Structure - Ongoing
 ### **Rationale:**
 
@@ -13,7 +11,7 @@ This document outlines planned modifications and features to be implemented in G
 - [x] Create a general feedback structure to:
   - [x] Use a similar feedback structure as for individual students.
   - [x] Keep track of all students' feedback to identify common strengths and weaknesses.
-  - [x] Analyze areas where students collectively faced the most challenges.
+  - [ ] Analyze areas where students collectively faced the most challenges.
 
 ## Integration of AND and OR Lines in Grading
 ### **Rationale:**
@@ -52,9 +50,9 @@ This document outlines planned modifications and features to be implemented in G
 - **Impact:** Offering clear examples and step-by-step guides will make it easier for faculty to adopt the tool, reducing the learning curve and increasing the likelihood of consistent and accurate grading across different lab sessions. This will also empower faculty to create their own answer keys and grading schemes, enhancing the tool’s utility and flexibility.
 
 ## Detailed Changes
-- [ ] Review and update all relevant parts of the codebase to ensure seamless integration of new features.
-- [ ] Ensure backward compatibility with existing functionalities where applicable.
-- [ ] Thoroughly test each feature to ensure accuracy and reliability.
+- [x] Review and update all relevant parts of the codebase to ensure seamless integration of new features. @completed(2024-09-12T10:08:57-04:00)
+- [x] Ensure backward compatibility with existing functionalities where applicable. @completed(2024-09-12T10:08:54-04:00)
+- [x] Thoroughly test each feature to ensure accuracy and reliability. @completed(2024-09-12T10:09:05-04:00)
 
 This plan will guide the development and enhancement of GradeMaster to make it more versatile and user-friendly.
 
