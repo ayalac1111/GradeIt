@@ -279,80 +279,83 @@ def read_student_files(username, file_name, data_directory):
 
 def load_students(grade_it_paths):
     """
-    Loads student data from a CSV file.
+    Loads student data from a CSV file and handles malformed rows gracefully.
 
-    This function reads a CSV file containing student information and returns a list of dictionaries,
-    each representing a student with their corresponding username and UID. This data is essential
-    for associating student submissions with their respective identifiers during the grading process.
+    This function reads a CSV file containing student information, validates each row against the header fields,
+    and skips any rows that do not match the expected format.
 
     Args:
-        grade_it_paths (dict): GradeMaster arguments.
+        grade_it_paths (dict): Configuration paths containing the path to the students.csv file.
 
     Returns:
-        list: A list of dictionaries with 'username' and 'uid'.
+        list: A list of dictionaries where each dictionary represents a student and includes all attributes
+              specified in the CSV file.
         Example:
               [
-                  {'username': 'john_doe', 'uid': '1001'},
-                  {'username': 'jane_smith', 'uid': '1002'},
+                  {'username': 'john_doe', 'u': '1001', 'group': 'A'},
+                  {'username': 'jane_smith', 'u': '1002', 'group': 'B'},
                   ...
               ]
 
-    YAML Structure:
-    ----------------
-    If the student data were to be represented in YAML format, it would look like the following:
-
-    students:
-      - username: "john_doe"
-        uid: "1001"
-      - username: "jane_smith"
-        uid: "1002"
-      # Additional student entries...
-
-    This structure facilitates easy integration with other YAML-based configurations and tools.
-
-    Usage:
-    -------
-    The function is typically used at the beginning of the grading script to load all student information
-    before processing their submissions. For example:
-
-    students = load_students("path/to/students.csv")
-    for student in students:
-        username = student['username']
-        uid = student['uid']
-        # Proceed with grading the student's submissions
-
-    Logging:
-    --------
-    - Logs an error message if the CSV file cannot be found or read.
-    - Logs debug messages for each student loaded (optional, depending on logging level).
-
-    TODO:
-    -----
-    - Enhance error handling to manage malformed CSV files or missing headers.
-    - Implement support for additional student attributes beyond 'username' and 'uid'.
-    - Integrate validation to ensure that each student entry contains the required fields.
-
     Note:
     -----
-    - If the "Multiple Variables from Student File" feature is implemented, this function will need to be
-      updated to read and process additional columns from the `students.csv` file. This may involve dynamically
-      handling varying numbers of attributes per student and ensuring that the grading scheme can utilize these
-      additional variables effectively.
-    - Ensure that the CSV file follows a consistent structure to prevent errors during parsing. If the directory
-      structure or naming conventions for student files change, corresponding updates may be required in how
-      student data is utilized throughout the grading script.
+    - The function dynamically converts all CSV column headers to lowercase for consistency when creating
+      the student dictionary. This ensures that the grading scheme can utilize these attributes effectively
+      even if there are variations in column header formatting.
+    - Summary of the Behavior:
+        Extra fields in the row ➔ Ignored and the student is graded with the available data.
+        Missing fields in the row ➔ Error is logged, and the student is skipped.
     """
 
     students_file = grade_it_paths['students_file']
-
     students = []
+
     with open(students_file, 'r') as file:
-        csv_reader = csv.reader(file)
-        for row in csv_reader:
-            username = row[0]
-            uid = row[1] if len(row) > 1 else 'NONE'
-            students.append({'username': username, 'uid': uid})
+        csv_reader = csv.DictReader(file)
+
+        # Normalize and clean headers, removing any empty headers
+        normalized_headers = [header.strip().lower() for header in csv_reader.fieldnames if header.strip()]
+
+        logging.debug(f"Validated headers found in CSV: {normalized_headers}")
+
+        if 'username' not in normalized_headers:
+            logging.error("The CSV file must contain a 'username' column in the header.")
+            raise ValueError("Missing 'username' column in the student CSV file header.")
+
+        for row_number, row in enumerate(csv_reader, start=2):  # start=2 accounts for the header row being row 1
+            # Filter the row to include only keys that are in normalized_headers
+            student = {key.lower(): row[key].strip() for key in normalized_headers if key in row and row[key].strip()}
+
+            # Check for missing fields
+            missing_fields = [key for key in normalized_headers if key not in row or not row[key].strip()]
+            if missing_fields:
+                logging.error(f"Row {row_number} is missing fields: {missing_fields}. Skipping this row.")
+                continue  # Skip the row if it doesn't match the expected format
+
+            logging.debug(f"Student dictionary created for row {row_number}: {student}")
+            students.append(student)
+
+    logging.info(f"Loaded {len(students)} students from {students_file}")
     return students
+
+
+def preprocess_line_for_student(line, student):
+    """
+    Replaces placeholders in the line with the student's data based on the CSV header.
+
+    Args:
+        line (str): The line to process.
+        student (dict): The student dictionary containing  at least 'username'
+
+    Returns:
+        str: The processed line.
+    """
+
+    for key, value in student.items():
+        placeholder = f"{{{key.upper()}}}"      # Use uppercases for placeholders in answer_key
+        line = line.replace(placeholder, str(value).strip())
+
+    return line
 
 
 def match_line(student_line, answer_key_line):
@@ -386,27 +389,6 @@ def match_line(student_line, answer_key_line):
 
     return match is not None
 
-
-def preprocess_line_for_student(line, student):
-    """
-    Replaces '{U}' and '{USERNAME}' in the line with the student's UID and username,
-    and strips any extra spaces from the input strings.
-
-    Args:
-        line (str): The line to process.
-        student (dict): The student dictionary containing 'username' and 'uid'.
-
-    Returns:
-        str: The processed line.
-    """
-    uid = student.get('uid', None)
-    username = student.get('username', None)
-    line = line.strip()
-    if uid is not None:
-        line = line.replace('{U}', str(uid).strip())
-    if username is not None:
-        line = line.replace('{USERNAME}', str(username).strip())
-    return line
 
 
 def update_general_feedback(general_feedback, student_feedback, grading_scheme):
@@ -731,15 +713,6 @@ def save_general_feedback(general_feedback, paths):
         yaml.dump(general_feedback, yamlfile, default_flow_style=False, allow_unicode=True)
 
 
-def load_config(config_path="./config.yaml"):
-    """Loads the configuration from a YAML file. Raises an error if the file is missing."""
-
-    if os.path.exists(config_path):
-        with open(config_path, 'r') as file:
-            return yaml.safe_load(file)
-    else:
-        raise FileNotFoundError(f"Config file not found at {config_path}")
-
 def create_or_load_config(config_path="./config.yaml"):
     """Load the configuration from a YAML file or prompt the user to create it."""
     if os.path.exists(config_path):
@@ -781,12 +754,6 @@ def prompt_user_for_config():
         'grades_csv_file': os.path.join(results_dir, "grades.csv")
     }
 
-    # Save the configuration to a YAML file for future reference
-    # config_path = "./config.yaml"
-    # with open(config_path, 'w') as config_file:
-    #    yaml.dump(config, config_file, default_flow_style=False)
-    # logging.info(f"Configuration saved to {config_path}")
-
     return config
 
 
@@ -800,19 +767,19 @@ def main():
     """
 
     1. Parse arguments
-    1. Load configuration from config.yaml (or specified path)
     2. Setup logging & YAML
-    3. Validates directories and files,
-    4. Convert answer_key.txt to grading_scheme.yaml and load it
-    5. Load students
-    6. Initialize general feedback
-    7. Grade students submission
-    8. Save general feedback
+    3. Create or load configuration from config.yaml (or specified path)
+    4. Validates directories and files,
+    5. Convert answer_key.txt to grading_scheme.yaml and load it
+    6. Load students
+    7. Initialize general feedback
+    8. Grade students submission
+    9. Save general feedback
     """
 
     args = parse_arguments()
-    grade_it_paths = create_or_load_config(args.config)
     configure_globals()
+    grade_it_paths = create_or_load_config(args.config)
     validate_directories_and_files(grade_it_paths)
     grading_scheme = load_grading_scheme(grade_it_paths)
     students = load_students(grade_it_paths)
