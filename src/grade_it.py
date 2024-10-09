@@ -207,7 +207,7 @@ def convert_answer_key_to_yaml(answer_key_file, output_path):
         logging.debug(f"Final grading scheme: {grading_scheme}")
 
         with open(output_path, 'w') as yamlfile:
-            yaml.dump(grading_scheme, yamlfile, default_flow_style=False)
+            yaml.dump(grading_scheme, yamlfile, default_flow_style=False, allow_unicode=True)
 
         logging.info(f"Successfully converted {answer_key_file} to {output_path}")
 
@@ -376,7 +376,7 @@ def match_line(student_line, answer_key_line):
     logging.debug(f"Against line: {student_line}")
 
     # Perform the regex search
-    match = re.search(answer_key_line, student_line)
+    match = re.search(answer_key_line, student_line, re.DOTALL)
 
     # Log the result of the match
     if match:
@@ -607,7 +607,7 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
 
     # Save feedback as YAML
     with open(f"{feedback_filepath}.yaml", 'w') as file:
-        yaml.dump(feedback_data, file, default_flow_style=False)
+        yaml.dump(feedback_data, file, default_flow_style=False, allow_unicode=True)
     logging.info(f"Feedback saved to {feedback_filepath}.yaml")
 
 
@@ -618,6 +618,7 @@ def save_student_results_to_csv(student, results, paths):
     Args:
         student (dict): A dictionary with 'username' and 'uid'.
         results (dict): The evaluation results.
+        paths (dict):
     """
     csv_file = paths["grades_csv_file"]
 
@@ -727,7 +728,7 @@ def save_general_feedback(general_feedback, paths):
 
     general_feedback_file = paths['general_feedback_file']
     with open(general_feedback_file, 'w') as yamlfile:
-        yaml.dump(general_feedback, yamlfile, default_flow_style=False)
+        yaml.dump(general_feedback, yamlfile, default_flow_style=False, allow_unicode=True)
 
 
 def load_config(config_path="./config.yaml"):
@@ -739,10 +740,59 @@ def load_config(config_path="./config.yaml"):
     else:
         raise FileNotFoundError(f"Config file not found at {config_path}")
 
+def create_or_load_config(config_path="./config.yaml"):
+    """Load the configuration from a YAML file or prompt the user to create it."""
+    if os.path.exists(config_path):
+        logging.info(f"Loading configuration from {config_path}")
+        with open(config_path, 'r') as file:
+            return yaml.safe_load(file)
+    else:
+        logging.warning("Configuration file not found. Let's create a new one.")
+        return prompt_user_for_config()
+
+
+def prompt_user_for_config():
+    """Prompt the user for paths and create a new configuration file."""
+    def get_validated_path(prompt_message):
+        while True:
+            path = input(prompt_message).strip().strip('"')
+            if os.path.isabs(path) and os.path.exists(path):
+                logging.info(f"Valid path provided: {path}")
+                return path
+            else:
+                logging.error("Invalid path. Please provide an absolute path in quotation marks.")
+
+    student_list_path = get_validated_path('Provide the full path to CSV file with your student list: ')
+    submissions_dir = get_validated_path('Provide the full path to the directory containing files that you wish to grade: ')
+    answer_file_path = get_validated_path('Provide the full path to your answer file: ')
+
+    results_dir = os.path.join(submissions_dir, "results")
+    os.makedirs(results_dir, exist_ok=True)
+    logging.info(f"Created results directory at: {results_dir}")
+
+    config = {
+        'students_file': student_list_path,
+        'submissions_dir': submissions_dir,
+        'answer_key_file': answer_file_path,
+        'results_dir': results_dir,
+        'feedback_dir': os.path.join(results_dir, "feedback"),
+        'general_feedback_file': os.path.join(results_dir, "general_feedback.yaml"),
+        'grading_scheme_file': os.path.join(results_dir, "grading_scheme.yaml"),
+        'grades_csv_file': os.path.join(results_dir, "grades.csv")
+    }
+
+    # Save the configuration to a YAML file for future reference
+    # config_path = "./config.yaml"
+    # with open(config_path, 'w') as config_file:
+    #    yaml.dump(config, config_file, default_flow_style=False)
+    # logging.info(f"Configuration saved to {config_path}")
+
+    return config
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='GradeIt: Flexible grading tool based on an answer key.')
-    parser.add_argument('--config', type=str, help='Path to the config.yaml file', default="./config.yaml" )
+    parser.add_argument('--config', type=str, help='Path to the config.yaml file', default="./config.yaml")
     return parser.parse_args()
 
 
@@ -761,7 +811,7 @@ def main():
     """
 
     args = parse_arguments()
-    grade_it_paths = load_config(args.config)
+    grade_it_paths = create_or_load_config(args.config)
     configure_globals()
     validate_directories_and_files(grade_it_paths)
     grading_scheme = load_grading_scheme(grade_it_paths)
