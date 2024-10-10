@@ -280,6 +280,8 @@ def read_student_files(username, file_name, data_directory):
 def load_students(grade_it_paths):
     """
     Loads student data from a CSV file and handles malformed rows gracefully.
+    Returns both student data and a list of valid variables to be used when grading.
+
 
     This function reads a CSV file containing student information, validates each row against the header fields,
     and skips any rows that do not match the expected format.
@@ -290,6 +292,11 @@ def load_students(grade_it_paths):
     Returns:
         list: A list of dictionaries where each dictionary represents a student and includes all attributes
               specified in the CSV file.
+
+        tuple: A tuple containing:
+            - A list of dictionaries representing student data.
+            - A list of valid variables from the CSV headers.
+
         Example:
               [
                   {'username': 'john_doe', 'u': '1001', 'group': 'A'},
@@ -336,7 +343,7 @@ def load_students(grade_it_paths):
             students.append(student)
 
     logging.info(f"Loaded {len(students)} students from {students_file}")
-    return students
+    return students, normalized_headers
 
 
 def preprocess_line_for_student(line, student):
@@ -598,7 +605,7 @@ def save_student_results_to_csv(student, results, paths):
     Save the student's results to a CSV file.
 
     Args:
-        student (dict): A dictionary with 'username' and 'uid'.
+        student (dict): A dictionary with student information.
         results (dict): The evaluation results.
         paths (dict):
     """
@@ -624,7 +631,11 @@ def save_student_results_to_csv(student, results, paths):
 
 def configure_globals():
     """Sets up logging and YAML configuration."""
-    logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+    # logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(module)s - %(funcName)s - %(lineno)d - %(message)s',
+    # datefmt='%Y-%m-%d %H:%M:%S')
+    logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     yaml.add_representer(OrderedDict, represent_ordereddict)
 
 
@@ -660,7 +671,7 @@ def validate_directories_and_files(grade_it_paths):
         sys.exit(1)
 
     logging.info(f"All required files and directories are present.")
-
+    return True
 
 def load_grading_scheme(grade_it_path):
     """Converts the answer key to YAML and loads the grading scheme."""
@@ -714,14 +725,35 @@ def save_general_feedback(general_feedback, paths):
 
 
 def create_or_load_config(config_path="./config.yaml"):
-    """Load the configuration from a YAML file or prompt the user to create it."""
-    if os.path.exists(config_path):
-        logging.info(f"Loading configuration from {config_path}")
-        with open(config_path, 'r') as file:
-            return yaml.safe_load(file)
-    else:
-        logging.warning("Configuration file not found. Let's create a new one.")
-        return prompt_user_for_config()
+    """
+    Loads the configuration from a YAML file, or prompts the user to create a new one if not provided.
+    Validates the directories and files to ensure everything is set up correctly.
+
+    Args:
+        config_path (str): Path to the config file.
+
+    Returns:
+        dict: A valid configuration dictionary if successful. Exits on failure.
+    """
+    try:
+        if os.path.exists(config_path):
+            logging.info(f"Loading configuration from {config_path}")
+            with open(config_path, 'r') as file:
+                config = yaml.safe_load(file)
+        else:
+            logging.warning("Configuration file not found. Let's create a new one.")
+            config = prompt_user_for_config()
+
+        # Validate directories and files after loading or creating configuration
+        if not validate_directories_and_files(config):
+            logging.error("Directory or file validation failed. Exiting.")
+            sys.exit(1)
+
+    except Exception as e:
+        logging.error(f"An error occurred while loading or creating the configuration: {e}. Exiting.")
+        sys.exit(1)
+
+    return config
 
 
 def prompt_user_for_config():
@@ -765,24 +797,23 @@ def parse_arguments():
 
 def main():
     """
+    Function to execute the grading workflow
 
     1. Parse arguments
     2. Setup logging & YAML
-    3. Create or load configuration from config.yaml (or specified path)
-    4. Validates directories and files,
-    5. Convert answer_key.txt to grading_scheme.yaml and load it
-    6. Load students
-    7. Initialize general feedback
+    3. Load configuration and validate paths from config.yaml (specified path or user input)
+    4. Load students and valid variables to use in the grading headers
+    5. Load and validate grading scheme
+    6. Initialize general feedback and open CSV file for student results
     8. Grade students submission
-    9. Save general feedback
+    9. Save feedback and grades after grading all students
     """
 
     args = parse_arguments()
     configure_globals()
     grade_it_paths = create_or_load_config(args.config)
-    validate_directories_and_files(grade_it_paths)
+    students, valid_variables = load_students(grade_it_paths)
     grading_scheme = load_grading_scheme(grade_it_paths)
-    students = load_students(grade_it_paths)
     general_feedback = initialize_general_feedback()
     grade_students_submission(students, grade_it_paths, grading_scheme, general_feedback)
     save_general_feedback(general_feedback, grade_it_paths)
