@@ -397,7 +397,6 @@ def match_line(student_line, answer_key_line):
     return match is not None
 
 
-
 def update_general_feedback(general_feedback, student_feedback, grading_scheme):
     """
     Updates the general feedback structure with the results from a student's feedback.
@@ -673,15 +672,61 @@ def validate_directories_and_files(grade_it_paths):
     logging.info(f"All required files and directories are present.")
     return True
 
-def load_grading_scheme(grade_it_path):
-    """Converts the answer key to YAML and loads the grading scheme."""
 
+def extract_grading_scheme_variables(grading_scheme_content):
+    """
+    Extracts variables from the grading scheme content that are referenced within braces {}.
+
+    Args:
+        grading_scheme_content (str): The content of the grading scheme file.
+
+    Returns:
+        set: A set of variables used in the grading scheme (e.g., {USERNAME}, {U}).
+    """
+    return set(re.findall(r'{(\w+)}', grading_scheme_content))
+
+
+def load_grading_scheme(grade_it_path, valid_variables):
+    """
+    Converts the answer key to YAML, loads the grading scheme, and validates its fields against the CSV headers.
+
+    Args:
+        grade_it_path (dict): GradeMaster paths containing the answer key and grading scheme file locations.
+        valid_variables (list): A list of valid CSV headers representing student data.
+
+    Returns:
+        dict: A dictionary representing the validated grading scheme if successful. The program will exit otherwise.
+    """
     answer_key_file = grade_it_path['answer_key_file']
     grading_scheme_file = grade_it_path['grading_scheme_file']
 
-    convert_answer_key_to_yaml(answer_key_file, grading_scheme_file)
-    with open(grading_scheme_file, 'r') as yamlfile:
-        return yaml.safe_load(yamlfile)
+    # Convert answer key to YAML format
+    try:
+        convert_answer_key_to_yaml(answer_key_file, grading_scheme_file)
+    except Exception as e:
+        logging.error(f"An error occurred while converting answer key to YAML: {e}. Exiting.")
+        sys.exit(1)
+
+    # Load grading scheme from the YAML file
+    try:
+        with open(grading_scheme_file, 'r') as yamlfile:
+            grading_scheme_content = yamlfile.read()
+            grading_scheme = yaml.safe_load(grading_scheme_content)
+
+        # Validate that all variables in the grading scheme are present in the CSV headers
+        grading_scheme_variables = extract_grading_scheme_variables(grading_scheme_content)
+        missing_fields = [var for var in grading_scheme_variables if var.lower() not in valid_variables]
+
+        if missing_fields:
+            logging.error(f"Validation failed: The following fields referenced in the grading scheme are missing from the CSV file: {missing_fields}. Exiting.")
+            sys.exit(1)
+
+        logging.info("Grading scheme fields successfully validated against CSV headers.")
+        return grading_scheme
+
+    except Exception as e:
+        logging.error(f"An error occurred while loading the grading scheme: {e}. Exiting.")
+        sys.exit(1)
 
 
 def initialize_general_feedback():
@@ -813,7 +858,7 @@ def main():
     configure_globals()
     grade_it_paths = create_or_load_config(args.config)
     students, valid_variables = load_students(grade_it_paths)
-    grading_scheme = load_grading_scheme(grade_it_paths)
+    grading_scheme = load_grading_scheme(grade_it_paths, valid_variables)
     general_feedback = initialize_general_feedback()
     grade_students_submission(students, grade_it_paths, grading_scheme, general_feedback)
     save_general_feedback(general_feedback, grade_it_paths)
