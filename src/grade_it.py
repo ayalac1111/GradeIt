@@ -729,17 +729,68 @@ def load_grading_scheme(grade_it_path, valid_variables):
         sys.exit(1)
 
 
-def initialize_general_feedback():
-    """Initializes the general feedback structure."""
-    return {
+def initialize_feedback_and_results(grade_it_paths):
+    """
+        Initializes general feedback and opens the CSV file for storing student results.
+
+        Args:
+            grade_it_paths (dict): GradeMaster paths containing necessary directories and files.
+
+        Returns:
+            tuple: A tuple containing:
+                - general_feedback (dict): An initialized general feedback dictionary.
+                - csv_writer (csv.DictWriter): A CSV writer object for writing student results.
+                - csv_file_handle (file object): The open CSV file handle to be used for writing.
+    """
+
+    general_feedback = {
         "total_students": 0,
         "average_score": 0,
         "pass_rate": 0,
         "tasks": []
     }
 
+    # Open the CSV file in write mode (will overwrite if it already exists)
+    csv_file = grade_it_paths['grades_csv_file']
+    csv_file_handle = open(csv_file, 'w', newline='')
 
-def grade_students_submission(students, paths, grading_scheme, general_feedback):
+    # Define the fieldnames for the CSV
+    fieldnames = ['username', 'earned_points']
+
+    # Initialize CSV DictWriter
+    csv_writer = csv.DictWriter(csv_file_handle, fieldnames=fieldnames)
+
+    # Write header to the file
+    csv_writer.writeheader()
+
+    return general_feedback, csv_writer, csv_file_handle
+
+
+def save_all_feedback(graded_students, general_feedback, csv_file_handle, grade_it_paths):
+    """
+    Saves all student feedback, general feedback, and final grades after grading is done.
+
+    Args:
+        graded_students (list): A list of dictionaries with graded student feedback.
+        general_feedback (dict): The general feedback to be saved.
+        csv_file_handle (file object): The open CSV file handle to be closed.
+        grade_it_paths (dict): GradeMaster paths containing necessary directories and files.
+    """
+    # Close the CSV file after grading is complete
+    csv_file_handle.close()
+
+    # Add all student feedback to the general feedback
+    general_feedback['feedback'].extend(graded_students)
+
+    # Save general feedback to a file
+    feedback_file_path = grade_it_paths['general_feedback_file']
+    with open(feedback_file_path, 'w') as file:
+        yaml.dump(general_feedback, file, default_flow_style=False, allow_unicode=True)
+
+    logging.info("All feedback has been saved successfully.")
+
+
+def grade_students_submission(students, paths, grading_scheme, general_feedback, csv_writer):
     """Processes each student's submission, evaluates it, and updates feedback structures."""
 
     file_name = grading_scheme.get("files")
@@ -753,20 +804,44 @@ def grade_students_submission(students, paths, grading_scheme, general_feedback)
 
         # Evaluate the student's data
         results = evaluate_student_data(student, student_data, grading_scheme)
-        save_student_feedback(student, results, grading_scheme, paths['feedback_dir'])
-        update_general_feedback(general_feedback, results, grading_scheme)
-        save_student_results_to_csv(student, results, paths)
 
         if results is None:
             logging.info(f"No submission or empty submission for student {username}")
 
+        # Save individual student feedback
+        save_student_feedback(student, results, grading_scheme, paths['feedback_dir'])
+        update_general_feedback(general_feedback, results, grading_scheme)
 
-def save_general_feedback(general_feedback, paths):
-    """Saves the general feedback to a file."""
+        # Write student results to the open CSV file using DictWriter
+        earned_points = 0 if results is None else results.get('earned_points', 0)
 
-    general_feedback_file = paths['general_feedback_file']
+        # Prepare the dictionary to be written
+        student_result = {
+            'username': username,
+            'earned_points': earned_points
+        }
+        csv_writer.writerow(student_result)
+
+        logging.debug(f"Results saved for {username}")
+
+
+def finalize_feedback_and_close_csv(general_feedback, csv_file_handle, grade_it_paths):
+    """
+        Finalizes feedback by saving general feedback and closing the CSV file used for grading results.
+
+        Args:
+            general_feedback (dict): The general feedback to be saved.
+            csv_file_handle (file object): The open CSV file handle to be closed.
+            grade_it_paths (dict): GradeMaster paths containing necessary directories and files.
+    """
+    csv_file_handle.close()
+    logging.debug("grades.csv file closed successfully.")
+
+    general_feedback_file = grade_it_paths['general_feedback_file']
     with open(general_feedback_file, 'w') as yamlfile:
         yaml.dump(general_feedback, yamlfile, default_flow_style=False, allow_unicode=True)
+
+    logging.debug("General feedback has been saved successfully.")
 
 
 def create_or_load_config(config_path="./config.yaml"):
@@ -859,9 +934,9 @@ def main():
     grade_it_paths = create_or_load_config(args.config)
     students, valid_variables = load_students(grade_it_paths)
     grading_scheme = load_grading_scheme(grade_it_paths, valid_variables)
-    general_feedback = initialize_general_feedback()
-    grade_students_submission(students, grade_it_paths, grading_scheme, general_feedback)
-    save_general_feedback(general_feedback, grade_it_paths)
+    general_feedback, csv_writer, cvs_file_handler = initialize_feedback_and_results(grade_it_paths)
+    grade_students_submission(students, grade_it_paths, grading_scheme, general_feedback, csv_writer)
+    finalize_feedback_and_close_csv(general_feedback, cvs_file_handler, grade_it_paths)
 
 
 if __name__ == "__main__":
