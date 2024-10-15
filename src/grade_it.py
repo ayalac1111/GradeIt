@@ -601,6 +601,7 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
 
 def save_student_results_to_csv(student, results, paths):
     """
+    DEPRECATED
     Save the student's results to a CSV file.
 
     Args:
@@ -630,7 +631,6 @@ def save_student_results_to_csv(student, results, paths):
 
 def configure_globals():
     """Sets up logging and YAML configuration."""
-
 
     # logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(module)s - %(funcName)s - %(lineno)d - %(message)s',
     # datefmt='%Y-%m-%d %H:%M:%S')
@@ -718,7 +718,7 @@ def load_grading_scheme(grade_it_path, valid_variables):
         missing_fields = [var for var in grading_scheme_variables if var.lower() not in valid_variables]
 
         if missing_fields:
-            logging.error(f"Validation failed: The following fields referenced in the grading scheme are missing from the CSV file: {missing_fields}. Exiting.")
+            logging.error(f"Validation failed: Fields referenced in the grading scheme are missing from the CSV file: {missing_fields}. Exiting.")
             sys.exit(1)
 
         logging.info("Grading scheme fields successfully validated against CSV headers.")
