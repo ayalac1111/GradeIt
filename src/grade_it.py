@@ -24,7 +24,10 @@ import csv
 from collections import OrderedDict
 
 
+# Script constants
 SPECIAL_CHAR = "#"
+COMMENT_IDENTIFIER = "!--"
+VALID_KEYWORDS = ["COURSE", "LAB", "PROFESSOR", "TOTAL", "FILE", "TASK", "DETAIL", "FEEDBACK"]
 
 
 def represent_ordereddict(dumper, data):
@@ -153,8 +156,10 @@ def convert_answer_key_to_yaml(answer_key_file, output_path):
             # These lines should always be present in the answer_key
             for _ in range(4):
                 line = file.readline().strip()
-                if not line:
-                    break
+                # Skip empty lines or comment lines
+                if not line or line.startswith(COMMENT_IDENTIFIER):
+                    logging.debug(f"Skipping line: {line}")
+                    continue
                 keyword, value = parse_special_line(line)
                 if keyword == "COURSE":
                     grading_scheme["course"] = value
@@ -168,11 +173,14 @@ def convert_answer_key_to_yaml(answer_key_file, output_path):
             # Process the remaining lines for grading_scheme
             for line in file:
                 line = line.strip()
-                logging.debug(f"Processing line: {line}")
-                if not line:
+                # Skip empty lines or comment lines
+                if not line or line.startswith(COMMENT_IDENTIFIER):
+                    logging.debug(f"Skipping line: {line}")
                     continue
+                logging.debug(f"Processing line: {line}")
 
                 keyword, value = parse_special_line(line)
+
                 if keyword:
                     logging.debug(f"Found keyword: {keyword}, value: {value}")
                     if keyword == "FILE":
@@ -658,7 +666,7 @@ def configure_globals():
 
     # logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(module)s - %(funcName)s - %(lineno)d - %(message)s',
     # datefmt='%Y-%m-%d %H:%M:%S')
-    logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     yaml.add_representer(OrderedDict, represent_ordereddict)
 
 
