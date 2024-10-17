@@ -149,7 +149,7 @@ def convert_answer_key_to_yaml(answer_key_file, output_path):
 
     try:
         with open(answer_key_file, 'r') as file:
-            # Read the first FIVE lines for course, lab, professor, and files
+            # Read the first FOUR lines for course, lab, professor, and files
             # These lines should always be present in the answer_key
             for _ in range(4):
                 line = file.readline().strip()
@@ -165,7 +165,7 @@ def convert_answer_key_to_yaml(answer_key_file, output_path):
                 elif keyword == "TOTAL":
                     grading_scheme["total_points"] = float(value)
 
-            # Process the remaining lines for tasks
+            # Process the remaining lines for grading_scheme
             for line in file:
                 line = line.strip()
                 logging.debug(f"Processing line: {line}")
@@ -176,7 +176,11 @@ def convert_answer_key_to_yaml(answer_key_file, output_path):
                 if keyword:
                     logging.debug(f"Found keyword: {keyword}, value: {value}")
                     if keyword == "FILE":
-                        # If we have an existing file entry, save it to student_data
+                        # If we have an existing file entry, save it to grading_structure
+                        if current_task:
+                            current_file["tasks"].append(current_task)
+                            current_task = None
+                        # If we have an existing file entry, save it to grading_structure
                         if current_file:
                             grading_scheme["grading_structure"].append(current_file)
 
@@ -1031,9 +1035,9 @@ def main():
     grade_it_paths = create_or_load_config(args.config)
     students, valid_variables = load_students(grade_it_paths)
     grading_scheme = load_grading_scheme(grade_it_paths, valid_variables)
-    general_feedback, csv_writer, cvs_file_handler = initialize_feedback_and_results(grade_it_paths)
-    grade_students_submission(students, grade_it_paths, grading_scheme, general_feedback, csv_writer)
-    finalize_feedback_and_close_csv(general_feedback, cvs_file_handler, grade_it_paths)
+    # general_feedback, csv_writer, cvs_file_handler = initialize_feedback_and_results(grade_it_paths)
+    # grade_students_submission(students, grade_it_paths, grading_scheme, general_feedback, csv_writer)
+    # finalize_feedback_and_close_csv(general_feedback, cvs_file_handler, grade_it_paths)
 
 
 if __name__ == "__main__":
