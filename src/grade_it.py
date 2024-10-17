@@ -105,26 +105,26 @@ def convert_answer_key_to_yaml(answer_key_file, output_path):
     course: "Course Name"
     lab: "Lab Name"
     professor: "Professor Name"
-    files: "Filename or NONE"
     total_points: float
-    tasks:
-      - task: "Task 1 Name"
-        lines:
-          - line: "Line to match"
-            points: float
-            detail: "Detail message"
-            feedback: "Feedback message"
-      - task: "Task 2 Name"
-        lines:
-          - line: "Another line to match"
-            points: float
-            detail: "Another detail message"
-            feedback: "Another feedback message"
+    student_data:
+      - filename: "{username}-01-file.txt"
+        tasks:
+          - task: "Task 1 Name"
+            lines:
+              - line: "Line to match"
+                points: float
+                detail: "Detail message"
+                feedback: "Feedback message"
+            task: "Task 2 Name"
+            lines:
+              - line: "Another line to match"
+                points: float
+                detail: "Another detail message"
+                feedback: "Another feedback message"
 
 
     TODO:
     -----
-    - Implement support for multiple variables beyond just 'U' by modifying how `line` values are processed.
     - Adapt the function to handle AND/OR logic for more flexible grading, as outlined in the FEATURES.md.
     - Update the YAML structure to support additional fields if required (multi-file submissions).
 
@@ -140,17 +140,18 @@ def convert_answer_key_to_yaml(answer_key_file, output_path):
         ("course", "NONE"),
         ("professor", "NONE"),
         ("lab", "NONE"),
-        ("files", "NONE"),
         ("total_points", 0.0),
-        ("tasks", [])
+        ("grading_structure", [])
     ])
+
+    current_file = None
     current_task = None
 
     try:
         with open(answer_key_file, 'r') as file:
             # Read the first FIVE lines for course, lab, professor, and files
             # These lines should always be present in the answer_key
-            for _ in range(5):
+            for _ in range(4):
                 line = file.readline().strip()
                 if not line:
                     break
@@ -161,8 +162,6 @@ def convert_answer_key_to_yaml(answer_key_file, output_path):
                     grading_scheme["lab"] = value
                 elif keyword == "PROFESSOR":
                     grading_scheme["professor"] = value
-                elif keyword == "FILES":
-                    grading_scheme["files"] = value
                 elif keyword == "TOTAL":
                     grading_scheme["total_points"] = float(value)
 
@@ -172,10 +171,21 @@ def convert_answer_key_to_yaml(answer_key_file, output_path):
                 logging.debug(f"Processing line: {line}")
                 if not line:
                     continue
+
                 keyword, value = parse_special_line(line)
                 if keyword:
                     logging.debug(f"Found keyword: {keyword}, value: {value}")
-                    if keyword == "TASK":
+                    if keyword == "FILE":
+                        # If we have an existing file entry, save it to student_data
+                        if current_file:
+                            grading_scheme["grading_structure"].append(current_file)
+
+                        # Create a new file entry
+                        current_file = OrderedDict([
+                            ("filename", value),
+                            ("tasks", [])
+                        ])
+                    elif keyword == "TASK":
                         if current_task:
                             grading_scheme["tasks"].append(current_task)
 
@@ -200,9 +210,13 @@ def convert_answer_key_to_yaml(answer_key_file, output_path):
                                 })
                         except ValueError:
                             logging.warning(f"Unknown keyword or invalid points '{keyword}' in line: {line}")
-            # Add the last task if it exists
-            if current_task:
-                grading_scheme["tasks"].append(current_task)
+
+            # Append the last task and file if they exist
+            if current_task and current_file:
+                current_file["tasks"].append(current_task)
+
+            if current_file:
+                grading_scheme["grading_structure"].append(current_file)
 
         logging.debug(f"Final grading scheme: {grading_scheme}")
 
@@ -406,6 +420,8 @@ def update_general_feedback(general_feedback, student_feedback, grading_scheme):
         student_feedback (dict): The feedback from a single student.
         grading_scheme (dict): The grading scheme containing tasks and lines to match.
     """
+    grading_structure = grading_scheme["grading_structure"]
+
     if student_feedback is None:
         general_feedback["no_submission"] = general_feedback.get("no_submission", 0) + 1
         return
@@ -433,17 +449,18 @@ def update_general_feedback(general_feedback, student_feedback, grading_scheme):
             general_feedback["tasks"].append(task_feedback)
 
         # Find the corresponding task in the grading scheme
-        grading_task = next((task for task in grading_scheme["tasks"] if task["task"] == task_name), None)
-        if grading_task:
-            # Update the scores
-            for i, score in enumerate(scores):
-                task_feedback["scores"][i] += score
-                task_feedback["task_earned_points"] += score
-                task_feedback["task_total_points"] += grading_task["lines"][i]["points"]
+        for file_data in grading_structure:
+            grading_task = next((task for task in file_data["tasks"] if task["task"] == task_name), None)
+            # grading_task = next((task for task in grading_scheme["tasks"] if task["task"] == task_name), None)
+            if grading_task:
+                # Update the scores
+                for i, score in enumerate(scores):
+                    task_feedback["scores"][i] += score
+                    task_feedback["task_earned_points"] += score
+                    task_feedback["task_total_points"] += grading_task["lines"][i]["points"]
 
     # Calculate overall total points for all tasks
-    total_points = sum(line["points"] for task in grading_scheme["tasks"] for line in task["lines"])
-    # total_points = sum(task["task_total_points"] for task in general_feedback["tasks"])
+    total_points = grading_scheme["total_points"]
     general_feedback["total_points"] = total_points
 
     # Calculate average score and rate for each task
@@ -465,22 +482,22 @@ def update_general_feedback(general_feedback, student_feedback, grading_scheme):
     general_feedback["pass_rate"] = round(general_feedback["passing_students"] / general_feedback["total_students"], 2)
 
 
-def evaluate_student_data(student, student_data, grading_scheme):
+def evaluate_student_data(student, student_file_data, tasks):
     """
     Evaluates the student's data against the grading scheme.
 
     Args:
         student (dict): The student dictionary containing 'username', 'uid', and other potential details.
-        student_data (str): The student's data.
-        grading_scheme (dict): The grading scheme containing tasks and lines to match.
+        student_file_data (str): The student's data from the specific file.
+        tasks (list): The tasks associated with the current file being evaluated.
 
     Returns:
         dict: The evaluation results, including total points and feedback.
     """
 
-    logging.info(f"Evaluating for {student['username']}")
+    logging.info(f"Evaluating {student['username']} for the provided tasks")
 
-    if not student_data.strip():
+    if not student_file_data.strip():
         logging.info("Nothing to report")
         return None
 
@@ -490,7 +507,7 @@ def evaluate_student_data(student, student_data, grading_scheme):
         "feedback": []
     }
 
-    for task in grading_scheme["tasks"]:
+    for task in tasks:
         task_feedback = {
             "task": task["task"],
             "correctness": [],
@@ -503,7 +520,7 @@ def evaluate_student_data(student, student_data, grading_scheme):
 
             results["total_points"] += points
 
-            if any(match_line(student_line, answer_key_line) for student_line in student_data.splitlines()):
+            if any(match_line(student_line, answer_key_line) for student_line in student_file_data.splitlines()):
                 results["earned_points"] += points
                 task_feedback["correctness"].append(1)
                 task_feedback["score"].append(points)
@@ -535,6 +552,8 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
     feedback_filename = f"{student['username']}-feedback"
     feedback_filepath = os.path.join(output_dir, feedback_filename)
 
+    grading_structure = grading_scheme["grading_structure"]
+
     # Initialize feedback_data with default values
     feedback_data = OrderedDict([
         ("course", [
@@ -564,28 +583,29 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
             task_name = task_result.get('task', 'Unknown Task')
             correctness = task_result.get('correctness', [])
 
-            # Find the task in the grading scheme
-            grading_task = next((task for task in grading_scheme["tasks"] if task["task"] == task_name), None)
-            if grading_task:
-                details = [line.get("detail", "") for line in grading_task["lines"]]
-                feedbacks = [line.get("feedback", "") for line in grading_task["lines"]]
+            # Iterate over files in grading_structure to find the correct task details
+            for file_data in grading_structure:
+                grading_task = next((task for task in file_data["tasks"] if task["task"] == task_name), None)
+                if grading_task:
+                    details = [line.get("detail", "") for line in grading_task["lines"]]
+                    feedbacks = [line.get("feedback", "") for line in grading_task["lines"]]
 
-                task_feedback = OrderedDict([
-                    ("task", task_name),
-                    ("results", [])
-                ])
+                    task_feedback = OrderedDict([
+                        ("task", task_name),
+                        ("results", [])
+                    ])
 
-                for i, correct in enumerate(correctness):
-                    detail = details[i] if i < len(details) else ''
-                    feedback = feedbacks[i] if i < len(feedbacks) else ''
+                    for i, correct in enumerate(correctness):
+                        detail = details[i] if i < len(details) else ''
+                        feedback = feedbacks[i] if i < len(feedbacks) else ''
 
-                    # Replace {U} with the student's UID in details and feedbacks if UID is not NONE
-                    detail = preprocess_line_for_student(detail, student)
-                    feedback = preprocess_line_for_student(feedback, student)
+                        # Replace {VARIABLES}
+                        detail = preprocess_line_for_student(detail, student)
+                        feedback = preprocess_line_for_student(feedback, student)
 
-                    task_feedback["results"].append(detail if correct == 1 else feedback)
+                        task_feedback["results"].append(detail if correct == 1 else feedback)
 
-                processed_feedback.append(task_feedback)
+                    processed_feedback.append(task_feedback)
 
         # Update feedback_data with results
         feedback_data["lab"][2]["earned_points"] = earned_points
@@ -721,12 +741,73 @@ def load_grading_scheme(grade_it_path, valid_variables):
             logging.error(f"Validation failed: Fields referenced in the grading scheme are missing from the CSV file: {missing_fields}. Exiting.")
             sys.exit(1)
 
+        # Validate the grading scheme structure
+        if not validate_grading_scheme(grading_scheme):
+            logging.error("Validation failed: Grading scheme structure is invalid. Exiting.")
+            sys.exit(1)
+
         logging.info("Grading scheme fields successfully validated against CSV headers.")
         return grading_scheme
 
     except Exception as e:
         logging.error(f"An error occurred while loading the grading scheme: {e}. Exiting.")
         sys.exit(1)
+
+
+def validate_grading_scheme(grading_scheme):
+    """
+    Validates the structure and variables of the grading scheme.
+
+    Args:
+        grading_scheme (dict): The grading scheme dictionary.
+
+    Returns:
+        bool: True if the grading scheme is valid, False otherwise.
+    """
+    # Check if student_data exists and contains at least one file
+    if "grading_structure" not in grading_scheme or not grading_scheme["grading_structure"]:
+        logging.error("Validation failed: The grading scheme must contain at least one file in 'student_data'.")
+        return False
+
+    # Iterate through each file in student_data
+    for file_data in grading_scheme["grading_structure"]:
+        if "filename" not in file_data or not file_data["filename"]:
+            logging.error("Validation failed: Each grading scheme entry must have a 'filename'.")
+            return False
+
+        # Validate that each file has at least one task
+        if "tasks" not in file_data or not file_data["tasks"]:
+            logging.error(f"Validation failed: The file '{file_data['filename']}' must contain at least one task.")
+            return False
+
+        # Iterate through each task in the file
+        for task in file_data["tasks"]:
+            if "task" not in task or not task["task"]:
+                logging.error(f"Validation failed: A task in file '{file_data['filename']}' is missing a 'task' description.")
+                return False
+
+            # Validate that each task contains at least one line
+            if "lines" not in task or not task["lines"]:
+                logging.error(f"Validation failed: The task '{task['task']}' in file '{file_data['filename']}' must contain at least one line.")
+                return False
+
+            # Validate that each task contains at least one line
+            if "lines" not in task or not task["lines"]:
+                logging.error(
+                    f"Validation failed: The task '{task['task']}' in file '{file_data['filename']}' must contain at least one line.")
+                return False
+
+            # Iterate through each line in the task
+            for line in task["lines"]:
+                if "points" not in line:
+                    logging.error(f"Validation failed: A line in task '{task['task']}' of file '{file_data['filename']}' is missing the 'points' field.")
+                    return False
+                if "detail" not in line:
+                    logging.error(f"Validation failed: A line in task '{task['task']}' of file '{file_data['filename']}' is missing the 'detail' field.")
+                    return False
+
+    logging.info("Grading scheme successfully validated.")
+    return True
 
 
 def initialize_feedback_and_results(grade_it_paths):
@@ -791,22 +872,38 @@ def save_all_feedback(graded_students, general_feedback, csv_file_handle, grade_
 
 
 def grade_students_submission(students, paths, grading_scheme, general_feedback, csv_writer):
-    """Processes each student's submission, evaluates it, and updates feedback structures."""
+    """
+    Processes each student's submission, evaluates it, and updates feedback structures.
 
-    file_name = grading_scheme.get("files")
-    if file_name == "NONE":
-        logging.error("No FILES keyword found in the answer_key.")
-        sys.exit(1)
+    Args:
+        students (list): List of dictionaries containing student information.
+        paths (dict): Paths to relevant files and directories for grading.
+        grading_scheme (dict): The grading scheme dictionary.
+        general_feedback (dict): General feedback to be saved for all students.
+        csv_writer (csv.DictWriter): CSV writer object to write student grades to the grades.csv file.
+    """
+
+    # Get the grading_scheme -- grading_structure
+    grading_structure = grading_scheme["grading_structure"]
 
     for student in students:
+
+        # Iterate over a student
         username = student['username']
-        student_data = read_student_files(username, file_name, paths['submissions_dir'])
 
-        # Evaluate the student's data
-        results = evaluate_student_data(student, student_data, grading_scheme)
+        # Iterate over all files in grading_structure
+        for file_data in grading_structure:
 
-        if results is None:
-            logging.info(f"No submission or empty submission for student {username}")
+            # Filename in the grading_structure
+            file_name = file_data["filename"]
+            tasks = file_data["tasks"]
+            student_file_data = read_student_files(username, file_name, paths['submissions_dir'])
+
+            # Evaluate the student's tasks in a file
+            results = evaluate_student_data(student, student_file_data, tasks)
+
+            if results is None:
+                logging.info(f"No submission or empty submission for student {username}")
 
         # Save individual student feedback
         save_student_feedback(student, results, grading_scheme, paths['feedback_dir'])
