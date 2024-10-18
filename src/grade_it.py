@@ -199,7 +199,7 @@ def convert_answer_key_to_yaml(answer_key_file, output_path):
                         ])
                     elif keyword == "TASK":
                         if current_task:
-                            grading_scheme["tasks"].append(current_task)
+                            current_file["tasks"].append(current_task)
 
                         # Use OrderedDict to ensure "task" appears first, followed by "lines"
                         current_task = OrderedDict([
@@ -666,7 +666,7 @@ def configure_globals():
 
     # logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(module)s - %(funcName)s - %(lineno)d - %(message)s',
     # datefmt='%Y-%m-%d %H:%M:%S')
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
     yaml.add_representer(OrderedDict, represent_ordereddict)
 
 
@@ -818,6 +818,18 @@ def validate_grading_scheme(grading_scheme):
                     logging.error(f"Validation failed: A line in task '{task['task']}' of file '{file_data['filename']}' is missing the 'detail' field.")
                     return False
 
+    # Additional Orphaned Attribute Check for DETAIL and FEEDBACK
+    for file_data in grading_scheme["grading_structure"]:
+        for task in file_data["tasks"]:
+            last_line = None
+            for line in task.get("lines", []):
+                if "line" in line:
+                    last_line = line
+                if "detail" in line or "feedback" in line:
+                    if not last_line:
+                        logging.error(f"Validation failed: Orphaned 'detail' or 'feedback' found in task '{task['task']}' of file '{file_data['filename']}'.")
+                        return False
+
     logging.info("Grading scheme successfully validated.")
     return True
 
@@ -898,10 +910,17 @@ def grade_students_submission(students, paths, grading_scheme, general_feedback,
     # Get the grading_scheme -- grading_structure
     grading_structure = grading_scheme["grading_structure"]
 
+    # Handles all students
     for student in students:
 
         # Iterate over a student
         username = student['username']
+
+        total_results = {
+            "total_points": 0.0,
+            "earned_points": 0.0,
+            "feedback": []
+        }
 
         # Iterate over all files in grading_structure
         for file_data in grading_structure:
@@ -909,20 +928,28 @@ def grade_students_submission(students, paths, grading_scheme, general_feedback,
             # Filename in the grading_structure
             file_name = file_data["filename"]
             tasks = file_data["tasks"]
+
+            # Read the student file data
             student_file_data = read_student_files(username, file_name, paths['submissions_dir'])
 
             # Evaluate the student's tasks in a file
-            results = evaluate_student_data(student, student_file_data, tasks)
+            file_results = evaluate_student_data(student, student_file_data, tasks)
 
-            if results is None:
-                logging.info(f"No submission or empty submission for student {username}")
+            if file_results is None:
+                logging.info(f"No submission or empty submission for student {username} in file '{file_name}'")
+                continue # Skip to the next file if no valid results for the current file
 
-        # Save individual student feedback
-        save_student_feedback(student, results, grading_scheme, paths['feedback_dir'])
-        update_general_feedback(general_feedback, results, grading_scheme)
+            # Accumulate points and feedback from file_results
+            total_results["total_points"] += file_results.get("total_points", 0)
+            total_results["earned_points"] += file_results.get("earned_points", 0)
+            total_results["feedback"].extend(file_results.get("feedback", []))
+
+        # Save  student feedback
+        save_student_feedback(student, total_results, grading_scheme, paths['feedback_dir'])
+        update_general_feedback(general_feedback, total_results, grading_scheme)
 
         # Write student results to the open CSV file using DictWriter
-        earned_points = 0 if results is None else results.get('earned_points', 0)
+        earned_points = 0 if total_results is None else total_results.get('earned_points', 0)
 
         # Prepare the dictionary to be written
         student_result = {
@@ -1043,9 +1070,9 @@ def main():
     grade_it_paths = create_or_load_config(args.config)
     students, valid_variables = load_students(grade_it_paths)
     grading_scheme = load_grading_scheme(grade_it_paths, valid_variables)
-    # general_feedback, csv_writer, cvs_file_handler = initialize_feedback_and_results(grade_it_paths)
-    # grade_students_submission(students, grade_it_paths, grading_scheme, general_feedback, csv_writer)
-    # finalize_feedback_and_close_csv(general_feedback, cvs_file_handler, grade_it_paths)
+    general_feedback, csv_writer, cvs_file_handler = initialize_feedback_and_results(grade_it_paths)
+    grade_students_submission(students, grade_it_paths, grading_scheme, general_feedback, csv_writer)
+    finalize_feedback_and_close_csv(general_feedback, cvs_file_handler, grade_it_paths)
 
 
 if __name__ == "__main__":
