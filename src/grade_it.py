@@ -561,7 +561,7 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
     lab = grading_scheme.get('lab', 'Unknown Lab')
     professor = grading_scheme.get('professor', 'Unknown Professor')
 
-    feedback_filename = f"{student['username']}-feedback"
+    feedback_filename = f"{student['username']}-{lab}-feedback"
     feedback_filepath = os.path.join(output_dir, feedback_filename)
 
     grading_structure = grading_scheme["grading_structure"]
