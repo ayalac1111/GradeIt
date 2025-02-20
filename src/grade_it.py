@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-GradeMaster: A flexible grading tool based on an answer key.
+GradeIt: A flexible grading tool based on an answer key.
 This script converts an answer key to a grading scheme, evaluates student data,
 and generates feedback.
 
@@ -213,13 +213,69 @@ def convert_answer_key_to_yaml(answer_key_file, output_path):
                         if current_task and current_task["lines"]:
                             current_task["lines"][-1]["feedback"] = value
                     else:
+                        # Inside the loop processing grading_scheme lines in convert_answer_key_to_yaml
+
+                        # Existing code:
+                        # try:
+                        #     points = float(keyword)
+                        #     if current_task is not None:
+                        #         current_task["lines"].append({
+                        #             "line": value,
+                        #             "points": points
+                        #         })
+                        # except ValueError:
+                        #     logging.warning(f"Unknown keyword or invalid points '{keyword}' in line: {line}")
+
+                        # Modified code to support composite conditions:
                         try:
                             points = float(keyword)
                             if current_task is not None:
-                                current_task["lines"].append({
-                                    "line": value,
-                                    "points": points
-                                })
+                                # Check if the value ends with a composite operator
+                                if value.rstrip().endswith("&&") or value.rstrip().endswith("||"):
+                                    # Determine the operator based on the trailing characters
+                                    operator = "AND" if value.rstrip().endswith("&&") else "OR"
+                                    # Remove the trailing operator from the current line
+                                    # Here, we split off the operator and trim any trailing whitespace
+                                    condition = value.rstrip()[:-2].rstrip()
+                                    patterns = [condition]
+
+                                    # Now, read subsequent lines to complete the composite condition.
+                                    # Each continued line that ends with the composite operator signals another pattern.
+                                    while True:
+                                        next_line = next(file, None)
+                                        if not next_line:
+                                            break  # End of file
+                                        next_line = next_line.strip()
+                                        # Skip empty or comment lines
+                                        if not next_line or next_line.startswith(COMMENT_IDENTIFIER):
+                                            continue
+                                        if next_line.endswith("&&") or next_line.endswith("||"):
+                                            # Ensure the operator is consistent
+                                            op = "AND" if next_line.endswith("&&") else "OR"
+                                            if op != operator:
+                                                logging.error("Composite operator mismatch in answer key.")
+                                            # Remove the trailing operator and add this pattern
+                                            pattern = next_line[:-2].rstrip()
+                                            patterns.append(pattern)
+                                            # Continue reading if the next line is also part of the composite
+                                            continue
+                                        else:
+                                            # This is the final line of the composite block; add it and break.
+                                            patterns.append(next_line)
+                                            break
+
+                                    # Append a composite condition entry with an operator and list of patterns.
+                                    current_task["lines"].append({
+                                        "operator": operator,
+                                        "patterns": patterns,
+                                        "points": points
+                                    })
+                                else:
+                                    # Otherwise, treat this as a simple condition.
+                                    current_task["lines"].append({
+                                        "line": value,
+                                        "points": points
+                                    })
                         except ValueError:
                             logging.warning(f"Unknown keyword or invalid points '{keyword}' in line: {line}")
 
@@ -296,7 +352,7 @@ def read_student_files(username, file_name, data_directory):
             student_data = file.read()
     except FileNotFoundError:
         logging.error(f"Configuration file not found: {filename}")
-        student_data = ""
+        student_data = None
 
     logging.debug(f"{username} data for {filename}:  {student_data}")
 
@@ -432,58 +488,75 @@ def update_general_feedback(general_feedback, student_feedback, grading_scheme):
         student_feedback (dict): The feedback from a single student.
         grading_scheme (dict): The grading scheme containing tasks and lines to match.
     """
+
+    logging.info(f"Total results content: {student_feedback}")
+
+    # Since the student feedback contains score without the information of the grading scheme task, then
+    # load the grading_scheme to correlate task and scores.
+    task_earned_points = 0
     grading_structure = grading_scheme["grading_structure"]
 
+    # Update number of students - should count all students even the ones with empty feedbacks
+    general_feedback["total_students"] += 1
+
+    # The student feedback is empty, then skip
     if student_feedback is None:
         general_feedback["no_submission"] = general_feedback.get("no_submission", 0) + 1
         return
 
-    general_feedback["total_students"] += 1
-
-    if "passing_students" not in general_feedback:
-        general_feedback["passing_students"] = 0
-
+    # Update the general_feedback with the new student feedback
     for student_task_feedback in student_feedback["feedback"]:
+        logging.info(f"Adding feedback for student task: {student_task_feedback}")
+
         task_name = student_task_feedback["task"]
         scores = student_task_feedback["score"]
+
+        # Reset for each task
+        task_earned_points = 0
 
         # Find or create the task feedback in general feedback
         task_feedback = next((task for task in general_feedback["tasks"] if task["task"] == task_name), None)
         if task_feedback is None:
             task_feedback = {
                 "task": task_name,
-                "scores": [0.0] * len(scores),
-                "task_total_points": 0.0,
-                "task_earned_points": 0.0,
+                "task_scores": [0.0] * len(scores),
                 "task_average_score": 0.0,
-                "task_average_rate": 0.0,
             }
+            logging.info(f"Task Feedback: {task_feedback}")
             general_feedback["tasks"].append(task_feedback)
+            logging.info(f"General eedback: {general_feedback}")
 
         # Find the corresponding task in the grading scheme
         for file_data in grading_structure:
             grading_task = next((task for task in file_data["tasks"] if task["task"] == task_name), None)
-            # grading_task = next((task for task in grading_scheme["tasks"] if task["task"] == task_name), None)
+            task_earned_points = 0
             if grading_task:
                 # Update the scores
                 for i, score in enumerate(scores):
-                    task_feedback["scores"][i] += score
-                    task_feedback["task_earned_points"] += score
-                    task_feedback["task_total_points"] += grading_task["lines"][i]["points"]
+                    task_feedback["task_scores"][i] += score
+                    task_earned_points += score
 
     # Calculate overall total points for all tasks
     total_points = grading_scheme["total_points"]
-    general_feedback["total_points"] = total_points
 
     # Calculate average score and rate for each task
     for task_feedback in general_feedback["tasks"]:
-        task_feedback["task_average_score"] = round(task_feedback["task_earned_points"] / general_feedback["total_students"], 2)
-        task_feedback["task_average_rate"] = round((task_feedback["task_earned_points"] / task_feedback["task_total_points"]) * 100, 2)
+        # Calculate total earned points for the task
+        task_earned_points = sum(task_feedback["task_scores"])
+
+        # Calculate the average score for the task as a percentage of the total possible points
+        task_total_points = sum(task_feedback.get("total_possible_points", []))
+
+        # Calculate the average score for the task
+        if task_total_points > 0:
+            task_feedback["task_average_score"] = round((task_earned_points / task_total_points) * 100, 2)
+        # task_feedback["task_average_score"] = round(task_earned_points / general_feedback["total_students"] * 100, 2)
 
     # Calculate overall average score
-    total_earned_points = sum(task["task_earned_points"] for task in general_feedback["tasks"])
-    general_feedback["total_score"] = total_earned_points
-    general_feedback["average_score"] = round(total_earned_points / general_feedback["total_students"] if general_feedback["total_students"] > 0 else 0, 2)
+    total_earned_points = sum(task_earned_points for task in general_feedback["tasks"])
+    general_feedback["average_score"] = round(
+        total_earned_points / general_feedback["total_students"] if general_feedback["total_students"] > 0 else 0, 2
+    )
 
     # Calculate pass rate
     student_total_score = student_feedback["earned_points"]
@@ -491,7 +564,8 @@ def update_general_feedback(general_feedback, student_feedback, grading_scheme):
     if student_total_score >= 0.5 * total_points:
         general_feedback["passing_students"] += 1
 
-    general_feedback["pass_rate"] = round(general_feedback["passing_students"] / general_feedback["total_students"], 2)
+    general_feedback["pass_rate"] = round(
+        general_feedback["passing_students"] / general_feedback["total_students"], 2)
 
 
 def evaluate_student_data(student, student_file_data, tasks):
@@ -527,20 +601,53 @@ def evaluate_student_data(student, student_file_data, tasks):
         }
 
         for line in task["lines"]:
-            answer_key_line = preprocess_line_for_student(line["line"], student)
             points = line["points"]
-
             results["total_points"] += points
 
-            if any(match_line(student_line, answer_key_line) for student_line in student_file_data.splitlines()):
-                results["earned_points"] += points
-                task_feedback["correctness"].append(1)
-                task_feedback["score"].append(points)
+            # If no composite operator is present, evaluate as a simple condition
+            if "operator" not in line:
+                answer_key_line = preprocess_line_for_student(line["line"], student)
+                if any(match_line(student_line, answer_key_line)
+                       for student_line in student_file_data.splitlines()):
+                    results["earned_points"] += points
+                    task_feedback["correctness"].append(1)
+                    task_feedback["score"].append(points)
+                else:
+                    task_feedback["correctness"].append(0)
+                    task_feedback["score"].append(0)
             else:
-                task_feedback["correctness"].append(0)
-                task_feedback["score"].append(0)
+                # Composite condition evaluation
+                operator = line["operator"]
+                patterns = line["patterns"]
+                if operator == "AND":
+                    composite_match = all(
+                        any(match_line(student_line, preprocess_line_for_student(pattern, student))
+                            for student_line in student_file_data.splitlines())
+                        for pattern in patterns
+                    )
+                elif operator == "OR":
+                    composite_match = any(
+                        any(match_line(student_line, preprocess_line_for_student(pattern, student))
+                            for student_line in student_file_data.splitlines())
+                        for pattern in patterns
+                    )
+                else:
+                    # Fallback: if operator is not recognized, treat as a failed match.
+                    composite_match = False
 
+                if composite_match:
+                    results["earned_points"] += points
+                    task_feedback["correctness"].append(1)
+                    task_feedback["score"].append(points)
+                else:
+                    task_feedback["correctness"].append(0)
+                    task_feedback["score"].append(0)
+
+        # Append the aggregated task_feedback after processing all lines in the task.
         results["feedback"].append(task_feedback)
+
+    # Log the final evaluation results for debugging
+    logging.info("Evaluation results: %s", results)
 
     return results
 
@@ -602,6 +709,7 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
                     details = [line.get("detail", "") for line in grading_task["lines"]]
                     feedbacks = [line.get("feedback", "") for line in grading_task["lines"]]
 
+                    task_name = preprocess_line_for_student(task_name, student)
                     task_feedback = OrderedDict([
                         ("task", task_name),
                         ("results", [])
@@ -834,7 +942,7 @@ def validate_grading_scheme(grading_scheme):
     return True
 
 
-def initialize_feedback_and_results(grade_it_paths):
+def initialize_feedback_and_results(grade_it_paths, grading_scheme):
     """
         Initializes general feedback and opens the CSV file for storing student results.
 
@@ -848,12 +956,21 @@ def initialize_feedback_and_results(grade_it_paths):
                 - csv_file_handle (file object): The open CSV file handle to be used for writing.
     """
 
-    general_feedback = {
-        "total_students": 0,
-        "average_score": 0,
-        "pass_rate": 0,
-        "tasks": []
-    }
+    course = grading_scheme.get('course', 'Unknown Course')
+    lab = grading_scheme.get('lab', 'Unknown Lab')
+    professor = grading_scheme.get('professor', 'Unknown Professor')
+    total_points = grading_scheme.get('total_points', 0)
+
+    general_feedback = OrderedDict([
+        ("lab", f"{course} {lab}"),
+        ("graded_by", professor),
+        ("total_points", total_points),
+        ("total_students", 0),
+        ("average_score", 0),
+        ("pass_rate", 0),
+        ("passing_students", 0),
+        ("tasks", [])
+    ])
 
     # Open the CSV file in write mode (will overwrite if it already exists)
     csv_file = grade_it_paths['grades_csv_file']
@@ -932,6 +1049,11 @@ def grade_students_submission(students, paths, grading_scheme, general_feedback,
             # Read the student file data
             student_file_data = read_student_files(username, file_name, paths['submissions_dir'])
 
+            # Evaluate the student's tasks in a file if data is not None
+            if student_file_data is None:
+                logging.info(f"No submission or empty submission for student {username} in file '{file_name}'")
+                continue  # Skip to the next file if no valid results for the current file
+
             # Evaluate the student's tasks in a file
             file_results = evaluate_student_data(student, student_file_data, tasks)
 
@@ -946,7 +1068,7 @@ def grade_students_submission(students, paths, grading_scheme, general_feedback,
 
         # Save  student feedback
         save_student_feedback(student, total_results, grading_scheme, paths['feedback_dir'])
-        update_general_feedback(general_feedback, total_results, grading_scheme)
+        # update_general_feedback(general_feedback, total_results, grading_scheme)
 
         # Write student results to the open CSV file using DictWriter
         earned_points = 0 if total_results is None else total_results.get('earned_points', 0)
@@ -1070,7 +1192,7 @@ def main():
     grade_it_paths = create_or_load_config(args.config)
     students, valid_variables = load_students(grade_it_paths)
     grading_scheme = load_grading_scheme(grade_it_paths, valid_variables)
-    general_feedback, csv_writer, cvs_file_handler = initialize_feedback_and_results(grade_it_paths)
+    general_feedback, csv_writer, cvs_file_handler = initialize_feedback_and_results(grade_it_paths, grading_scheme)
     grade_students_submission(students, grade_it_paths, grading_scheme, general_feedback, csv_writer)
     finalize_feedback_and_close_csv(general_feedback, cvs_file_handler, grade_it_paths)
 
