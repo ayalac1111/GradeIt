@@ -152,7 +152,7 @@ def convert_answer_key_to_yaml(answer_key_file, output_path):
 
     try:
         with open(answer_key_file, 'r') as file:
-            # Read the first FOUR lines for course, lab, professor, and files
+            # Read the first FOUR lines for course, lab, professor, and total_points
             # These lines should always be present in the answer_key
             for _ in range(4):
                 line = file.readline().strip()
@@ -299,31 +299,20 @@ def convert_answer_key_to_yaml(answer_key_file, output_path):
         logging.error(f"An error occurred: {e}")
 
 
-def read_student_files(username, file_name, data_directory):
+def read_student_files(student, file_name, data_directory):
     """
-    Reads the specific file for a student.
+    Reads the specific file for a student using a flexible filename that may include variables.
 
-    This function constructs a filename based on the student's username and the specified file name. It then attempts to
-    open and read the file from the given data directory. If the file is not found, it logs an error and returns an
-    empty string.
+    The file_name parameter (as provided in the answer key) can include placeholders such as {username}.
+    This function will substitute those placeholders using the student's data.
 
     Args:
-        username (str): The username of the student.
-        file_name (str): The name of the file to read.
+        student (dict): The full student dictionary.
+        file_name (str): The file name from the answer key (may contain placeholders).
         data_directory (str): The directory where student files are located.
 
     Returns:
-        str: The contents of the student's file.
-
-    Usage:
-    -------
-    The function is typically used to read the configuration or submission files for a specific student,
-    which are stored in a structured directory. For example:
-
-
-    student_data = read_student_files("john_doe", "lab1.txt", "/path/to/student/files")
-
-    The expected filename would be `john_doe-lab1.txt` located in the `/path/to/student/files/` directory.
+        str: The contents of the student's file, or None if the file is not found.
 
     Logging:
     --------
@@ -334,18 +323,12 @@ def read_student_files(username, file_name, data_directory):
     TODO:
     -----
     - Consider implementing additional error handling, such as checking for file read permissions.
-    - If the "Multiple Variables from Student File" feature is implemented, this function might need to
-      be adapted to handle reading multiple files associated with a single student.
-
-    Note:
-    -----
-    - The function currently assumes a simple filename format (`username-file_name`). If the directory structure
-      or naming convention changes, this function will need to be updated accordingly.
 
     """
 
-    filename = f"{username}-{file_name}"
-    logging.debug(f"Reading {username} file: {filename}")
+    filename = preprocess_line_for_student(file_name, student)
+
+    logging.debug(f"Reading {student['username']} file: {filename}")
 
     try:
         with open(os.path.join(data_directory, filename), 'r') as file:
@@ -354,7 +337,7 @@ def read_student_files(username, file_name, data_directory):
         logging.error(f"Configuration file not found: {filename}")
         student_data = None
 
-    logging.debug(f"{username} data for {filename}:  {student_data}")
+    logging.debug(f"{student['username']} data for {filename}:  {student_data}")
 
     return student_data
 
@@ -1047,7 +1030,7 @@ def grade_students_submission(students, paths, grading_scheme, general_feedback,
             tasks = file_data["tasks"]
 
             # Read the student file data
-            student_file_data = read_student_files(username, file_name, paths['submissions_dir'])
+            student_file_data = read_student_files(student, file_name, paths['submissions_dir'])
 
             # Evaluate the student's tasks in a file if data is not None
             if student_file_data is None:
