@@ -231,7 +231,44 @@ def convert_answer_key_to_yaml(answer_key_file, output_path):
                             points = float(keyword)
                             if current_task is not None:
                                 # Check if the value ends with a composite operator
-                                if value.rstrip().endswith("&&") or value.rstrip().endswith("||"):
+                                # Strip trailing whitespace from value
+                                v = value.rstrip()
+                                # Check for proximity operator pattern: e.g., "&&++5"
+                                prox_match = re.search(r'(&&\s*\+\+\s*(\d+))$', v)
+                                if prox_match:
+                                    operator = "AND++"
+                                    proximity = int(prox_match.group(2))
+                                    # Remove the trailing "&&++n" from the condition text
+                                    condition = v[:-len(prox_match.group(1))].rstrip()
+                                    patterns = [condition]
+                                    # Read subsequent lines as part of the composite condition
+                                    while True:
+                                        next_line = next(file, None)
+                                        if not next_line:
+                                            break  # End of file
+                                        next_line = next_line.strip()
+                                        if not next_line or next_line.startswith(COMMENT_IDENTIFIER):
+                                            continue
+                                        # Here we assume subsequent lines do not have proximity constraints.
+                                        # They are just additional patterns.
+                                        if next_line.endswith("&&") or next_line.endswith("||"):
+                                            op = "AND" if next_line.endswith("&&") else "OR"
+                                            if op != "AND":
+                                                logging.error(
+                                                    "Composite operator mismatch in answer key for proximity composite.")
+                                            pattern = next_line[:-2].rstrip()
+                                            patterns.append(pattern)
+                                            continue
+                                        else:
+                                            patterns.append(next_line)
+                                            break
+                                    current_task["lines"].append({
+                                        "operator": operator,
+                                        "proximity": proximity,
+                                        "patterns": patterns,
+                                        "points": points
+                                    })
+                                elif value.rstrip().endswith("&&") or value.rstrip().endswith("||"):
                                     # Determine the operator based on the trailing characters
                                     operator = "AND" if value.rstrip().endswith("&&") else "OR"
                                     # Remove the trailing operator from the current line
@@ -390,6 +427,8 @@ def load_students(grade_it_paths):
 
         logging.debug(f"Validated headers found in CSV: {normalized_headers}")
 
+        # TODO: username could be in lower or upper or snake like cases
+
         if 'username' not in normalized_headers:
             logging.error("The CSV file must contain a 'username' column in the header.")
             raise ValueError("Missing 'username' column in the student CSV file header.")
@@ -444,14 +483,23 @@ def match_line(student_line, answer_key_line):
 
     # Adjust the pattern to handle spaces and optionally trailing characters
 
-    answer_key_line = re.sub(r'\s+', r'\\s*', answer_key_line)
+    #answer_key_line = re.sub(r'\s+', r'\\s*', answer_key_line)
+    # Replace one or more whitespace characters with the regex token '\s*'
+    try:
+        answer_key_line = re.sub(r'\s+', lambda m: r'\s*', answer_key_line)
+    except re.error as e:
+        logging.error(f"Error processing replacement in pattern '{answer_key_line}': {e}")
+        return False
 
     # Add debug logging to see what is being matched
     logging.debug(f"Matching pattern: {answer_key_line}")
     logging.debug(f"Against line: {student_line}")
 
-    # Perform the regex search
-    match = re.search(answer_key_line, student_line, re.DOTALL)
+    try:
+        match = re.search(answer_key_line, student_line, re.DOTALL)
+    except re.error as e:
+        logging.error(f"Regex error in pattern '{answer_key_line}': {e}")
+        return False
 
     # Log the result of the match
     if match:
@@ -602,7 +650,40 @@ def evaluate_student_data(student, student_file_data, tasks):
                 # Composite condition evaluation
                 operator = line["operator"]
                 patterns = line["patterns"]
-                if operator == "AND":
+                if operator == "AND++":
+                    proximity = line.get("proximity", 0)
+                    student_lines = student_file_data.splitlines()
+                    found = True
+                    current_index = None
+                    for idx, pattern in enumerate(patterns):
+                        processed_pattern = preprocess_line_for_student(pattern, student)
+                        if idx == 0:
+                            # Search the entire document for the first pattern
+                            match_index = None
+                            for j, student_line in enumerate(student_lines):
+                                if match_line(student_line, processed_pattern):
+                                    match_index = j
+                                    break
+                            if match_index is None:
+                                found = False
+                                break
+                            else:
+                                current_index = match_index
+                        else:
+                            # For subsequent patterns, search only within the next 'proximity' lines
+                            match_found = False
+                            start = current_index + 1
+                            end = min(len(student_lines), current_index + 1 + proximity)
+                            for j in range(start, end):
+                                if match_line(student_lines[j], processed_pattern):
+                                    match_found = True
+                                    current_index = j
+                                    break
+                            if not match_found:
+                                found = False
+                                break
+                    composite_match = found
+                elif operator == "AND":
                     composite_match = all(
                         any(match_line(student_line, preprocess_line_for_student(pattern, student))
                             for student_line in student_file_data.splitlines())
@@ -910,11 +991,13 @@ def validate_grading_scheme(grading_scheme):
                     return False
 
     # Additional Orphaned Attribute Check for DETAIL and FEEDBACK
+    # We now consider a line valid if it has either a "line" key or an "operator" key.
+
     for file_data in grading_scheme["grading_structure"]:
         for task in file_data["tasks"]:
             last_line = None
             for line in task.get("lines", []):
-                if "line" in line:
+                if "line" in line or "operator" in line:
                     last_line = line
                 if "detail" in line or "feedback" in line:
                     if not last_line:
