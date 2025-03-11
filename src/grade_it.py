@@ -653,36 +653,31 @@ def evaluate_student_data(student, student_file_data, tasks):
                 if operator == "AND++":
                     proximity = line.get("proximity", 0)
                     student_lines = student_file_data.splitlines()
-                    found = True
-                    current_index = None
-                    for idx, pattern in enumerate(patterns):
-                        processed_pattern = preprocess_line_for_student(pattern, student)
-                        if idx == 0:
-                            # Search the entire document for the first pattern
-                            match_index = None
-                            for j, student_line in enumerate(student_lines):
-                                if match_line(student_line, processed_pattern):
-                                    match_index = j
-                                    break
-                            if match_index is None:
+                    composite_match = False
+                    processed_first = preprocess_line_for_student(patterns[0], student)
+                    # Iterate over all occurrences of the first pattern
+                    for i, student_line in enumerate(student_lines):
+                        if match_line(student_line, processed_first):
+                            current_index = i
+                            success_chain = True
+                            # Attempt to match the remaining patterns in order
+                            for pattern in patterns[1:]:
+                                processed_pattern = preprocess_line_for_student(pattern, student)
                                 found = False
-                                break
-                            else:
-                                current_index = match_index
-                        else:
-                            # For subsequent patterns, search only within the next 'proximity' lines
-                            match_found = False
-                            start = current_index + 1
-                            end = min(len(student_lines), current_index + 1 + proximity)
-                            for j in range(start, end):
-                                if match_line(student_lines[j], processed_pattern):
-                                    match_found = True
-                                    current_index = j
+                                # Look only within the next 'proximity' lines
+                                for j in range(current_index + 1,
+                                               min(len(student_lines), current_index + 1 + proximity)):
+                                    if match_line(student_lines[j], processed_pattern):
+                                        found = True
+                                        current_index = j
+                                        break
+                                if not found:
+                                    success_chain = False
                                     break
-                            if not match_found:
-                                found = False
+                            if success_chain:
+                                composite_match = True
                                 break
-                    composite_match = found
+
                 elif operator == "AND":
                     composite_match = all(
                         any(match_line(student_line, preprocess_line_for_student(pattern, student))
@@ -690,11 +685,22 @@ def evaluate_student_data(student, student_file_data, tasks):
                         for pattern in patterns
                     )
                 elif operator == "OR":
-                    composite_match = any(
-                        any(match_line(student_line, preprocess_line_for_student(pattern, student))
-                            for student_line in student_file_data.splitlines())
-                        for pattern in patterns
-                    )
+                    #composite_match = any(
+                    #    any(match_line(student_line, preprocess_line_for_student(pattern, student))
+                    #        for student_line in student_file_data.splitlines())
+                    #    for pattern in patterns
+                    #)
+                    composite_match = False
+                    for pattern in patterns:
+                        processed_pattern = preprocess_line_for_student(pattern, student)
+                        pattern_found = any(
+                            match_line(student_line, processed_pattern)
+                            for student_line in student_file_data.splitlines()
+                        )
+                        logging.debug(f"OR operator: Pattern '{processed_pattern}' found: {pattern_found}")
+                        if pattern_found:
+                            composite_match = True
+                            break
                 else:
                     # Fallback: if operator is not recognized, treat as a failed match.
                     composite_match = False
