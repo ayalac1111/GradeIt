@@ -51,7 +51,7 @@ def parse_special_line(line):
     # match.group(3): Captures the value (in the first regex).
 
     # First regular expression pattern to match lines that start with #[<points>] <value>
-    match = re.match(r"^#\[\s*(\d+(\.\d+)?)\s*](.*)", line)
+    match = re.match(r"^#\[\s*(-?\d+(\.\d+)?)\s*](.*)", line)
     # ^#\[ matches the beginning of the line followed by #[.
     # \s* matches any whitespace characters (spaces, tabs) zero or more times.
     # (\d+(\.\d+)?) captures one or more digits followed optionally by a decimal point and one or more digits,
@@ -384,20 +384,20 @@ def load_students(grade_it_paths):
     Loads student data from a CSV file and handles malformed rows gracefully.
     Returns both student data and a list of valid variables to be used when grading.
 
-
-    This function reads a CSV file containing student information, validates each row against the header fields,
-    and skips any rows that do not match the expected format.
+    This function reads a CSV file containing student information and converts all header keys to
+    lower-case to ensure uniform access. It then builds each student record by iterating over every
+    key–value pair in the row, converting the keys to lower-case, so that CSV headers provided in any
+    case (e.g., "UserName", "user", "Native_ID") are handled consistently. The function validates that
+    each student record contains all fields defined by the normalized header names. Extra fields in the row
+    are retained, and rows missing any required field (e.g., "username") are skipped.
 
     Args:
         grade_it_paths (dict): Configuration paths containing the path to the students.csv file.
 
     Returns:
-        list: A list of dictionaries where each dictionary represents a student and includes all attributes
-              specified in the CSV file.
-
         tuple: A tuple containing:
-            - A list of dictionaries representing student data.
-            - A list of valid variables from the CSV headers.
+            - A list of dictionaries representing student data (with all keys converted to lower-case).
+            - A list of normalized header names (all lower-case).
 
         Example:
               [
@@ -408,12 +408,13 @@ def load_students(grade_it_paths):
 
     Note:
     -----
-    - The function dynamically converts all CSV column headers to lowercase for consistency when creating
-      the student dictionary. This ensures that the grading scheme can utilize these attributes effectively
-      even if there are variations in column header formatting.
-    - Summary of the Behavior:
-        Extra fields in the row ➔ Ignored and the student is graded with the available data.
-        Missing fields in the row ➔ Error is logged, and the student is skipped.
+    - All CSV column headers are converted to lower-case for consistency when creating the student dictionary.
+      This ensures that the grading scheme can reliably use these attributes regardless of the original header
+      formatting.
+    - The function builds each student record by iterating over every key in the row, rather than limiting to a
+      predefined list, allowing extra fields to be included.
+    - If any of the normalized header fields are missing from a row, that row is skipped and an error is logged.
+    - This approach improves flexibility with CSV header cases and ensures consistent access to student data.
     """
 
     students_file = grade_it_paths['students_file']
@@ -422,26 +423,22 @@ def load_students(grade_it_paths):
     with open(students_file, 'r') as file:
         csv_reader = csv.DictReader(file)
 
-        # Normalize and clean headers, removing any empty headers
+        # Normalize and clean headers: convert all headers to lower-case
         normalized_headers = [header.strip().lower() for header in csv_reader.fieldnames if header.strip()]
-
         logging.debug(f"Validated headers found in CSV: {normalized_headers}")
-
-        # TODO: username could be in lower or upper or snake like cases
 
         if 'username' not in normalized_headers:
             logging.error("The CSV file must contain a 'username' column in the header.")
             raise ValueError("Missing 'username' column in the student CSV file header.")
 
-        for row_number, row in enumerate(csv_reader, start=2):  # start=2 accounts for the header row being row 1
-            # Filter the row to include only keys that are in normalized_headers
-            student = {key.lower(): row[key].strip() for key in normalized_headers if key in row and row[key].strip()}
-
-            # Check for missing fields
-            missing_fields = [key for key in normalized_headers if key not in row or not row[key].strip()]
+        for row_number, row in enumerate(csv_reader, start=2):
+            # Build a dictionary with lower-case keys and stripped values for the entire row
+            student = {key.lower(): value.strip() for key, value in row.items() if value.strip()}
+            # Check for missing fields based on the normalized headers
+            missing_fields = [field for field in normalized_headers if field not in student or not student[field]]
             if missing_fields:
                 logging.error(f"Row {row_number} is missing fields: {missing_fields}. Skipping this row.")
-                continue  # Skip the row if it doesn't match the expected format
+                continue
 
             logging.debug(f"Student dictionary created for row {row_number}: {student}")
             students.append(student)
