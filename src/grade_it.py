@@ -1011,35 +1011,22 @@ def validate_grading_scheme(grading_scheme):
     return True
 
 
-def initialize_feedback_and_results(grade_it_paths, grading_scheme):
+def initialize_csv_results(grade_it_paths):
     """
-        Initializes general feedback and opens the CSV file for storing student results.
+       Initializes the CSV file and CSV writer for storing student results.
 
-        Args:
-            grade_it_paths (dict): GradeMaster paths containing necessary directories and files.
+    This function opens the CSV file (overwriting any existing file), sets up a
+    csv.DictWriter with the fieldnames 'username' and 'earned_points', writes the header,
+    and returns both the CSV writer object and the open file handle.
 
-        Returns:
-            tuple: A tuple containing:
-                - general_feedback (dict): An initialized general feedback dictionary.
-                - csv_writer (csv.DictWriter): A CSV writer object for writing student results.
-                - csv_file_handle (file object): The open CSV file handle to be used for writing.
+    Args:
+        grade_it_paths (dict): A dictionary containing paths, including the key 'grades_csv_file'.
+
+    Returns:
+        tuple: A tuple containing:
+            - csv_writer (csv.DictWriter): The CSV writer object for writing student results.
+            - csv_file_handle (file object): The open CSV file handle.
     """
-
-    course = grading_scheme.get('course', 'Unknown Course')
-    lab = grading_scheme.get('lab', 'Unknown Lab')
-    professor = grading_scheme.get('professor', 'Unknown Professor')
-    total_points = grading_scheme.get('total_points', 0)
-
-    general_feedback = OrderedDict([
-        ("lab", f"{course} {lab}"),
-        ("graded_by", professor),
-        ("total_points", total_points),
-        ("total_students", 0),
-        ("average_score", 0),
-        ("pass_rate", 0),
-        ("passing_students", 0),
-        ("tasks", [])
-    ])
 
     # Open the CSV file in write mode (will overwrite if it already exists)
     csv_file = grade_it_paths['grades_csv_file']
@@ -1054,7 +1041,7 @@ def initialize_feedback_and_results(grade_it_paths, grading_scheme):
     # Write header to the file
     csv_writer.writeheader()
 
-    return general_feedback, csv_writer, csv_file_handle
+    return csv_writer, csv_file_handle
 
 
 def save_all_feedback(graded_students, general_feedback, csv_file_handle, grade_it_paths):
@@ -1081,7 +1068,7 @@ def save_all_feedback(graded_students, general_feedback, csv_file_handle, grade_
     logging.info("All feedback has been saved successfully.")
 
 
-def grade_students_submission(students, paths, grading_scheme, general_feedback, csv_writer):
+def grade_students_submission(students, paths, grading_scheme, csv_writer):
     """
     Processes each student's submission, evaluates it, and updates feedback structures.
 
@@ -1089,7 +1076,6 @@ def grade_students_submission(students, paths, grading_scheme, general_feedback,
         students (list): List of dictionaries containing student information.
         paths (dict): Paths to relevant files and directories for grading.
         grading_scheme (dict): The grading scheme dictionary.
-        general_feedback (dict): General feedback to be saved for all students.
         csv_writer (csv.DictWriter): CSV writer object to write student grades to the grades.csv file.
     """
 
@@ -1244,7 +1230,7 @@ def main():
     3. Load configuration and validate paths from config.yaml (specified path or user input)
     4. Load students and valid variables to use in the grading headers
     5. Load and validate grading scheme
-    6. Initialize general feedback and open CSV file for student results
+    6. Open CSV file for student results
     8. Grade students submission
     9. Save students grades
     9. Save feedback and grades after grading all students
@@ -1255,8 +1241,8 @@ def main():
     grade_it_paths = create_or_load_config(args.config)
     students, valid_variables = load_students(grade_it_paths)
     grading_scheme = load_grading_scheme(grade_it_paths, valid_variables)
-    general_feedback, csv_writer, cvs_file_handler = initialize_feedback_and_results(grade_it_paths, grading_scheme)
-    grade_students_submission(students, grade_it_paths, grading_scheme, general_feedback, csv_writer)
+    csv_writer, cvs_file_handler = initialize_csv_results(grade_it_paths)
+    grade_students_submission(students, grade_it_paths, grading_scheme, csv_writer)
     close_csv(cvs_file_handler)
 
 
