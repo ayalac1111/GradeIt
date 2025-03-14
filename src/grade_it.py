@@ -1152,23 +1152,16 @@ def grade_students_submission(students, paths, grading_scheme, general_feedback,
         logging.debug(f"Results saved for {username}")
 
 
-def finalize_feedback_and_close_csv(general_feedback, csv_file_handle, grade_it_paths):
+def close_csv(csv_file_handle):
     """
-        Finalizes feedback by saving general feedback and closing the CSV file used for grading results.
+    Finalizes grading by closing the CSV file used for storing student results.
 
-        Args:
-            general_feedback (dict): The general feedback to be saved.
-            csv_file_handle (file object): The open CSV file handle to be closed.
-            grade_it_paths (dict): GradeMaster paths containing necessary directories and files.
+    Args:
+        csv_file_handle (file object): The open CSV file handle to be closed.
     """
     csv_file_handle.close()
     logging.debug("grades.csv file closed successfully.")
 
-    general_feedback_file = grade_it_paths['general_feedback_file']
-    with open(general_feedback_file, 'w') as yamlfile:
-        yaml.dump(general_feedback, yamlfile, default_flow_style=False, allow_unicode=True)
-
-    logging.debug("General feedback has been saved successfully.")
 
 
 def create_or_load_config(config_path="./config.yaml"):
@@ -1253,6 +1246,7 @@ def main():
     5. Load and validate grading scheme
     6. Initialize general feedback and open CSV file for student results
     8. Grade students submission
+    9. Save students grades
     9. Save feedback and grades after grading all students
     """
 
@@ -1263,7 +1257,7 @@ def main():
     grading_scheme = load_grading_scheme(grade_it_paths, valid_variables)
     general_feedback, csv_writer, cvs_file_handler = initialize_feedback_and_results(grade_it_paths, grading_scheme)
     grade_students_submission(students, grade_it_paths, grading_scheme, general_feedback, csv_writer)
-    finalize_feedback_and_close_csv(general_feedback, cvs_file_handler, grade_it_paths)
+    close_csv(cvs_file_handler)
 
 
 if __name__ == "__main__":
