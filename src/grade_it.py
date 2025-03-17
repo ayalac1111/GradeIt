@@ -1246,28 +1246,16 @@ def parse_arguments():
 
 def aggregate_general_feedback(grade_it_paths, grading_scheme):
     """
-    Aggregates individual student feedback YAML files into a general feedback report,
-    computing for each task line:
-      - average_points: (sum of "line_point" values for that line across all students) / (number of students)
-      - pass: "T" if average_points >= max_points (as defined in the grading scheme) else "F"
-    Also computes average_lab_points as (average overall earned lab points / total_points)*100.
+    Aggregates individual student feedback YAML files into a general feedback report.
+    For each task line, computes:
+      - average_points: (sum of "points" values for that line across all students) / (number of students), rounded to 2 decimals.
+      - pass: "T" if average_points >= max_points (from grading scheme), else "F"
+    Also computes average_lab_points as (average overall earned lab points / total_points) * 100.
 
-    This function uses the grading scheme as the blueprint for task structure and maximum points.
-    It reads all student feedback YAML files from grade_it_paths['feedback_dir'], accumulates the "line_point"
-    for each task and each line (from the "results" list), and then computes the average per line.
-    The aggregated report (including lab details and per-task, per-line averages) is then saved to the file
-    specified in grade_it_paths['general_feedback_file'].
-
-    Args:
-        grade_it_paths (dict): Contains configuration paths including:
-            - 'feedback_dir': Directory with individual student feedback YAML files.
-            - 'general_feedback_file': Output path for the aggregated general feedback YAML file.
-        grading_scheme (dict): The grading scheme dictionary, which includes course/lab details and
-                               grading_structure (with tasks and their line definitions).
-
-    Returns:
-        None
+    Handles a grading_scheme that may contain multiple file entries.
     """
+    import os, glob, yaml, logging
+    from collections import OrderedDict
 
     # Extract basic lab details from grading_scheme.
     course = grading_scheme.get('course', 'Unknown Course')
@@ -1275,35 +1263,42 @@ def aggregate_general_feedback(grade_it_paths, grading_scheme):
     professor = grading_scheme.get('professor', 'Unknown Professor')
     total_points = grading_scheme.get('total_points', 0)
 
-    # Initialize aggregated feedback structure.
     aggregated = OrderedDict([
         ("lab", f"{course} {lab}"),
         ("graded_by", professor),
         ("total_points", total_points),
         ("total_students", 0),
         ("average_lab_points", "0%"),
-        ("tasks", OrderedDict())
+        ("tasks", [])
     ])
 
     feedback_dir = grade_it_paths['feedback_dir']
     output_file = grade_it_paths['general_feedback_file']
-
-    # Retrieve all student feedback YAML files.
     feedback_files = glob.glob(os.path.join(feedback_dir, "*.yaml"))
     total_students = len(feedback_files)
     aggregated["total_students"] = total_students
 
     total_lab_points_sum = 0.0
 
-    # Accumulator for task scores based on the new structure.
-    # Structure: { task_name: [ [line_point, line_point, ...] for each line ] }
-    task_line_scores = {}
+    # Flatten all tasks from the grading_structure into one list.
+    grading_structure = grading_scheme.get("grading_structure", [])
+    all_grading_tasks = []
+    for file_entry in grading_structure:
+        tasks = file_entry.get("tasks", [])
+        all_grading_tasks.extend(tasks)
+
+    # Initialize accumulator: each task gets a list for each of its lines.
+    task_line_scores = [
+        [ [] for _ in range(len(task.get("lines", []))) ]
+        for task in all_grading_tasks
+    ]
 
     # Process each student feedback file.
     for f in feedback_files:
         try:
             with open(f, 'r') as file:
                 student_feedback = yaml.safe_load(file)
+            username = student_feedback.get('student', {}).get('username', 'Unknown')
         except Exception as e:
             logging.error(f"Error reading file {f}: {e}")
             continue
@@ -1311,8 +1306,6 @@ def aggregate_general_feedback(grade_it_paths, grading_scheme):
         # Aggregate overall lab earned_points.
         try:
             earned = float(student_feedback['lab'][2]['earned_points'])
-            # Log the earned points with the student identifier if available.
-            username = student_feedback.get('student', {}).get('username', 'Unknown')
             logging.debug(f"Student '{username}' earned {earned} lab points.")
         except (KeyError, ValueError, TypeError) as e:
             logging.error(f"Error processing lab earned_points in file {f}: {e}")
@@ -1324,55 +1317,55 @@ def aggregate_general_feedback(grade_it_paths, grading_scheme):
             logging.debug(f"No task feedback found in {f}.")
             continue
 
-        for student_task in student_feedback['feedback']:
-            task_name = student_task.get('task', 'Unknown Task')
-            # Each student's task feedback now contains "results": a list of dictionaries with "line_point"
+        student_tasks = student_feedback['feedback']
+        if len(student_tasks) != len(task_line_scores):
+            logging.error(f"Mismatch in number of tasks for file {f}. Expected {len(task_line_scores)}, got {len(student_tasks)}. Skipping file.")
+            continue
+
+        for idx, student_task in enumerate(student_tasks):
             results_list = student_task.get('results', [])
-            if task_name not in task_line_scores:
-                # Initialize one empty list per expected line.
-                task_line_scores[task_name] = [[] for _ in range(len(results_list))]
-            # Check if the number of result entries matches the expected number.
-            if len(results_list) != len(task_line_scores[task_name]):
-                logging.error(f"Mismatch in result entries for task '{task_name}' in file {f}. "
-                              f"Expected {len(task_line_scores[task_name])}, got {len(results_list)}. Skipping this task for this file.")
+            if len(results_list) != len(task_line_scores[idx]):
+                logging.error(f"Mismatch in number of result entries for task index {idx} in file {f}. Skipping this task.")
                 continue
             for i, result in enumerate(results_list):
                 try:
                     line_point = float(result.get("points", 0))
                 except Exception:
                     line_point = 0.0
-                task_line_scores[task_name][i].append(line_point)
-                logging.debug(f"Task '{task_name}', line {i} from {f}: points = {line_point}")
+                task_line_scores[idx][i].append(line_point)
 
-    # Compute overall average_lab_points as a percentage.
+    # Compute overall average lab points once all files have been processed.
     if total_students > 0 and total_points > 0:
         avg_lab = (total_lab_points_sum / total_students) / total_points * 100
         aggregated["average_lab_points"] = f"{round(avg_lab)}%"
     else:
         aggregated["average_lab_points"] = "0%"
-    logging.debug(f"Computed average lab points: {aggregated['average_lab_points']}")
+    logging.debug("Task_line_scores (by index): %s", task_line_scores)
 
-    # Now, iterate over grading_scheme to build per-line aggregated feedback.
-    for file_data in grading_scheme.get("grading_structure", []):
-        for task in file_data.get("tasks", []):
-            task_name = task.get("task", "Unknown Task")
-            lines = task.get("lines", [])
-            aggregated["tasks"][task_name] = []
-            for i, line in enumerate(lines):
-                max_points = line.get("points", 0)
-                detail = line.get("detail", "")
-                if task_name in task_line_scores and i < len(task_line_scores[task_name]) and total_students > 0:
-                    avg_points = sum(task_line_scores[task_name][i]) / total_students
-                else:
-                    avg_points = 0.0
-                pass_status = "T" if avg_points >= max_points else "F"
-                line_agg = OrderedDict([
-                    ("detail", detail),
-                    ("max_points", max_points),
-                    ("average_points", avg_points),
-                    ("pass", pass_status)
-                ])
-                aggregated["tasks"][task_name].append(line_agg)
+    # Build the aggregated feedback for each task.
+    for idx, task in enumerate(all_grading_tasks):
+        task_name = task.get("task", f"Task {idx+1}")
+        task_results = []
+        lines = task.get("lines", [])
+        for i, line in enumerate(lines):
+            max_points = line.get("points", 0)
+            detail = line.get("detail", "")
+            if i < len(task_line_scores[idx]) and total_students > 0:
+                scores_list = task_line_scores[idx][i]
+                avg_points = round(sum(scores_list) / total_students, 2)
+            else:
+                avg_points = 0.0
+            pass_status = "T" if avg_points >= (max_points/2) else "F"
+            task_results.append(OrderedDict([
+                ("detail", detail),
+                ("max_points", max_points),
+                ("average_points", avg_points),
+                ("pass", pass_status)
+            ]))
+        aggregated["tasks"].append(OrderedDict([
+            ("task", task_name),
+            ("results", task_results)
+        ]))
 
     # Write the aggregated feedback to the output YAML file.
     try:
@@ -1381,6 +1374,7 @@ def aggregate_general_feedback(grade_it_paths, grading_scheme):
         logging.info(f"Aggregated general feedback saved to {output_file}")
     except Exception as e:
         logging.error(f"Error writing aggregated feedback to {output_file}: {e}")
+
 
 def main():
     """
