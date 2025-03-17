@@ -21,6 +21,7 @@ import re
 import yaml
 from datetime import datetime
 import csv
+import glob
 from collections import OrderedDict
 
 
@@ -552,7 +553,7 @@ def update_general_feedback(general_feedback, student_feedback, grading_scheme):
             }
             logging.info(f"Task Feedback: {task_feedback}")
             general_feedback["tasks"].append(task_feedback)
-            logging.info(f"General eedback: {general_feedback}")
+            logging.info(f"General feedback: {general_feedback}")
 
         # Find the corresponding task in the grading scheme
         for file_data in grading_structure:
@@ -721,13 +722,26 @@ def evaluate_student_data(student, student_file_data, tasks):
 
 def save_student_feedback(student, results, grading_scheme, output_dir):
     """
-    Saves feedback for the student in a text file or YAML format.
+    Saves feedback for the student in a YAML file.
+
+    This function extracts course and lab details from the grading scheme, then builds detailed
+    feedback for each task. For each task, it processes the "correctness" and "score" arrays from the
+    evaluation results. For each line in a task, it creates a dictionary with:
+      - "feedback": the detail message (with variables substituted) if correct, or the feedback message if incorrect.
+      - "points": the score for that line if the student's answer was correct (correct == 1), otherwise 0.
+
+    The aggregated feedback is then saved as a YAML file named "{username}-{lab}-feedback.yaml" in the output directory.
 
     Args:
-        results (dict): The evaluation results (None if no submission).
-        grading_scheme (dict): The grading scheme.
-        student (dict): A dictionary with 'username' and 'uid'.
-        output_dir (str): The directory where the feedback file should be saved.
+        student (dict): A dictionary with at least 'username' and other student attributes.
+        results (dict): The evaluation results, containing 'earned_points', 'feedback', and for each task a
+                        "correctness" list and a "score" list.
+        grading_scheme (dict): The grading scheme used for grading, which includes task definitions with
+                               "detail", "feedback", and maximum "points" for each line.
+        output_dir (str): The directory where the feedback YAML file should be saved.
+
+    Returns:
+        None
     """
     # Extract course, lab, and professor information from the grading scheme
 
@@ -765,9 +779,11 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
         lab_grade = (earned_points / total_points) * 100 if total_points > 0 else 0
 
         processed_feedback = []
+
         for task_result in results['feedback']:
             task_name = task_result.get('task', 'Unknown Task')
             correctness = task_result.get('correctness', [])
+            scores = task_result.get('score', [])
 
             # Iterate over files in grading_structure to find the correct task details
             for file_data in grading_structure:
@@ -782,15 +798,23 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
                         ("results", [])
                     ])
 
+                    # For each line in the task, create an entry with line_point and text.
                     for i, correct in enumerate(correctness):
                         detail = details[i] if i < len(details) else ''
                         feedback = feedbacks[i] if i < len(feedbacks) else ''
+                        score_val = scores[i] if i < len(scores) else 0
 
                         # Replace {VARIABLES}
                         detail = preprocess_line_for_student(detail, student)
                         feedback = preprocess_line_for_student(feedback, student)
 
-                        task_feedback["results"].append(detail if correct == 1 else feedback)
+                        #task_feedback["results"].append(detail if correct == 1 else feedback)
+
+                        line_result = {
+                            "points": score_val if correct == 1 else 0,
+                            "feedback": detail if correct == 1 else feedback
+                        }
+                        task_feedback["results"].append(line_result)
 
                     processed_feedback.append(task_feedback)
 
@@ -1220,6 +1244,143 @@ def parse_arguments():
     parser.add_argument('--config', type=str, help='Path to the config.yaml file', default="./config.yaml")
     return parser.parse_args()
 
+def aggregate_general_feedback(grade_it_paths, grading_scheme):
+    """
+    Aggregates individual student feedback YAML files into a general feedback report,
+    computing for each task line:
+      - average_points: (sum of "line_point" values for that line across all students) / (number of students)
+      - pass: "T" if average_points >= max_points (as defined in the grading scheme) else "F"
+    Also computes average_lab_points as (average overall earned lab points / total_points)*100.
+
+    This function uses the grading scheme as the blueprint for task structure and maximum points.
+    It reads all student feedback YAML files from grade_it_paths['feedback_dir'], accumulates the "line_point"
+    for each task and each line (from the "results" list), and then computes the average per line.
+    The aggregated report (including lab details and per-task, per-line averages) is then saved to the file
+    specified in grade_it_paths['general_feedback_file'].
+
+    Args:
+        grade_it_paths (dict): Contains configuration paths including:
+            - 'feedback_dir': Directory with individual student feedback YAML files.
+            - 'general_feedback_file': Output path for the aggregated general feedback YAML file.
+        grading_scheme (dict): The grading scheme dictionary, which includes course/lab details and
+                               grading_structure (with tasks and their line definitions).
+
+    Returns:
+        None
+    """
+
+    # Extract basic lab details from grading_scheme.
+    course = grading_scheme.get('course', 'Unknown Course')
+    lab = grading_scheme.get('lab', 'Unknown Lab')
+    professor = grading_scheme.get('professor', 'Unknown Professor')
+    total_points = grading_scheme.get('total_points', 0)
+
+    # Initialize aggregated feedback structure.
+    aggregated = OrderedDict([
+        ("lab", f"{course} {lab}"),
+        ("graded_by", professor),
+        ("total_points", total_points),
+        ("total_students", 0),
+        ("average_lab_points", "0%"),
+        ("tasks", OrderedDict())
+    ])
+
+    feedback_dir = grade_it_paths['feedback_dir']
+    output_file = grade_it_paths['general_feedback_file']
+
+    # Retrieve all student feedback YAML files.
+    feedback_files = glob.glob(os.path.join(feedback_dir, "*.yaml"))
+    total_students = len(feedback_files)
+    aggregated["total_students"] = total_students
+
+    total_lab_points_sum = 0.0
+
+    # Accumulator for task scores based on the new structure.
+    # Structure: { task_name: [ [line_point, line_point, ...] for each line ] }
+    task_line_scores = {}
+
+    # Process each student feedback file.
+    for f in feedback_files:
+        try:
+            with open(f, 'r') as file:
+                student_feedback = yaml.safe_load(file)
+        except Exception as e:
+            logging.error(f"Error reading file {f}: {e}")
+            continue
+
+        # Aggregate overall lab earned_points.
+        try:
+            earned = float(student_feedback['lab'][2]['earned_points'])
+            # Log the earned points with the student identifier if available.
+            username = student_feedback.get('student', {}).get('username', 'Unknown')
+            logging.debug(f"Student '{username}' earned {earned} lab points.")
+        except (KeyError, ValueError, TypeError) as e:
+            logging.error(f"Error processing lab earned_points in file {f}: {e}")
+            earned = 0.0
+        total_lab_points_sum += earned
+
+        # Process task-level feedback.
+        if 'feedback' not in student_feedback:
+            logging.debug(f"No task feedback found in {f}.")
+            continue
+
+        for student_task in student_feedback['feedback']:
+            task_name = student_task.get('task', 'Unknown Task')
+            # Each student's task feedback now contains "results": a list of dictionaries with "line_point"
+            results_list = student_task.get('results', [])
+            if task_name not in task_line_scores:
+                # Initialize one empty list per expected line.
+                task_line_scores[task_name] = [[] for _ in range(len(results_list))]
+            # Check if the number of result entries matches the expected number.
+            if len(results_list) != len(task_line_scores[task_name]):
+                logging.error(f"Mismatch in result entries for task '{task_name}' in file {f}. "
+                              f"Expected {len(task_line_scores[task_name])}, got {len(results_list)}. Skipping this task for this file.")
+                continue
+            for i, result in enumerate(results_list):
+                try:
+                    line_point = float(result.get("points", 0))
+                except Exception:
+                    line_point = 0.0
+                task_line_scores[task_name][i].append(line_point)
+                logging.debug(f"Task '{task_name}', line {i} from {f}: points = {line_point}")
+
+    # Compute overall average_lab_points as a percentage.
+    if total_students > 0 and total_points > 0:
+        avg_lab = (total_lab_points_sum / total_students) / total_points * 100
+        aggregated["average_lab_points"] = f"{round(avg_lab)}%"
+    else:
+        aggregated["average_lab_points"] = "0%"
+    logging.debug(f"Computed average lab points: {aggregated['average_lab_points']}")
+
+    # Now, iterate over grading_scheme to build per-line aggregated feedback.
+    for file_data in grading_scheme.get("grading_structure", []):
+        for task in file_data.get("tasks", []):
+            task_name = task.get("task", "Unknown Task")
+            lines = task.get("lines", [])
+            aggregated["tasks"][task_name] = []
+            for i, line in enumerate(lines):
+                max_points = line.get("points", 0)
+                detail = line.get("detail", "")
+                if task_name in task_line_scores and i < len(task_line_scores[task_name]) and total_students > 0:
+                    avg_points = sum(task_line_scores[task_name][i]) / total_students
+                else:
+                    avg_points = 0.0
+                pass_status = "T" if avg_points >= max_points else "F"
+                line_agg = OrderedDict([
+                    ("detail", detail),
+                    ("max_points", max_points),
+                    ("average_points", avg_points),
+                    ("pass", pass_status)
+                ])
+                aggregated["tasks"][task_name].append(line_agg)
+
+    # Write the aggregated feedback to the output YAML file.
+    try:
+        with open(output_file, 'w') as outfile:
+            yaml.dump(aggregated, outfile, default_flow_style=False, allow_unicode=True)
+        logging.info(f"Aggregated general feedback saved to {output_file}")
+    except Exception as e:
+        logging.error(f"Error writing aggregated feedback to {output_file}: {e}")
 
 def main():
     """
@@ -1244,6 +1405,7 @@ def main():
     csv_writer, cvs_file_handler = initialize_csv_results(grade_it_paths)
     grade_students_submission(students, grade_it_paths, grading_scheme, csv_writer)
     close_csv(cvs_file_handler)
+    aggregate_general_feedback(grade_it_paths, grading_scheme)
 
 
 if __name__ == "__main__":
