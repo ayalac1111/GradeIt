@@ -748,6 +748,7 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
     course = grading_scheme.get('course', 'Unknown Course')
     lab = grading_scheme.get('lab', 'Unknown Lab')
     professor = grading_scheme.get('professor', 'Unknown Professor')
+    u_student = student.get('username', 'Unknown User')
 
     feedback_filename = f"{student['username']}-{lab}-feedback"
     feedback_filepath = os.path.join(output_dir, feedback_filename)
@@ -756,19 +757,15 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
 
     # Initialize feedback_data with default values
     feedback_data = OrderedDict([
-        ("course", [
-            {"course_name": course},
-            {"professor": professor}
-        ]),
-        ("lab", [
-            {"lab_name": lab},
-            {"graded_on": datetime.now().strftime('%a %d %b %Y %H:%M:%S %Z')},
-            {"earned_points": 0},
-            {"total_points": grading_scheme.get('total_points', 0)},
-            {"lab_grade": "0%"}
-        ]),
-        ("student", student),
-        ("feedback", "No submission found or incorrect submission format.")
+        ("course", {"course_name": course, "professor": professor}),
+        ("lab", {
+            "student": u_student,
+            "lab_name": lab,
+            "graded_on": datetime.now().strftime('%a %d %b %Y %H:%M:%S %Z'),
+            "earned_points": 0,
+            "total_points": grading_scheme.get('total_points', 0),
+            "lab_grade": "0%"
+        }),
     ])
 
     # If there are results, update the feedback_data
@@ -808,8 +805,6 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
                         detail = preprocess_line_for_student(detail, student)
                         feedback = preprocess_line_for_student(feedback, student)
 
-                        #task_feedback["results"].append(detail if correct == 1 else feedback)
-
                         line_result = {
                             "points": score_val if correct == 1 else 0,
                             "feedback": detail if correct == 1 else feedback
@@ -819,14 +814,14 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
                     processed_feedback.append(task_feedback)
 
         # Update feedback_data with results
-        feedback_data["lab"][2]["earned_points"] = earned_points
-        feedback_data["lab"][3]["total_points"] = total_points
-        feedback_data["lab"][4]["lab_grade"] = f"{round(lab_grade, 2)}%"
+        feedback_data["lab"]["earned_points"] = earned_points
+        feedback_data["lab"]["total_points"] = total_points
+        feedback_data["lab"]["lab_grade"] = f"{round(lab_grade, 2)}%"
         feedback_data["feedback"] = processed_feedback
 
     # Save feedback as YAML
     with open(f"{feedback_filepath}.yaml", 'w') as file:
-        yaml.dump(feedback_data, file, default_flow_style=False, allow_unicode=True)
+        yaml.dump(feedback_data, file, default_flow_style=False, allow_unicode=True, sort_keys=False)
     logging.info(f"Feedback saved to {feedback_filepath}.yaml")
 
 
@@ -1254,8 +1249,7 @@ def aggregate_general_feedback(grade_it_paths, grading_scheme):
 
     Handles a grading_scheme that may contain multiple file entries.
     """
-    import os, glob, yaml, logging
-    from collections import OrderedDict
+
 
     # Extract basic lab details from grading_scheme.
     course = grading_scheme.get('course', 'Unknown Course')
@@ -1305,7 +1299,7 @@ def aggregate_general_feedback(grade_it_paths, grading_scheme):
 
         # Aggregate overall lab earned_points.
         try:
-            earned = float(student_feedback['lab'][2]['earned_points'])
+            earned = float(student_feedback['lab']['earned_points'])
             logging.debug(f"Student '{username}' earned {earned} lab points.")
         except (KeyError, ValueError, TypeError) as e:
             logging.error(f"Error processing lab earned_points in file {f}: {e}")
