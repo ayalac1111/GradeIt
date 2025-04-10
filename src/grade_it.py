@@ -216,17 +216,6 @@ def convert_answer_key_to_yaml(answer_key_file, output_path):
                     else:
                         # Inside the loop processing grading_scheme lines in convert_answer_key_to_yaml
 
-                        # Existing code:
-                        # try:
-                        #     points = float(keyword)
-                        #     if current_task is not None:
-                        #         current_task["lines"].append({
-                        #             "line": value,
-                        #             "points": points
-                        #         })
-                        # except ValueError:
-                        #     logging.warning(f"Unknown keyword or invalid points '{keyword}' in line: {line}")
-
                         # Modified code to support composite conditions:
                         try:
                             points = float(keyword)
@@ -683,11 +672,6 @@ def evaluate_student_data(student, student_file_data, tasks):
                         for pattern in patterns
                     )
                 elif operator == "OR":
-                    #composite_match = any(
-                    #    any(match_line(student_line, preprocess_line_for_student(pattern, student))
-                    #        for student_line in student_file_data.splitlines())
-                    #    for pattern in patterns
-                    #)
                     composite_match = False
                     for pattern in patterns:
                         processed_pattern = preprocess_line_for_student(pattern, student)
@@ -762,7 +746,8 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
             "student": u_student,
             "lab_name": lab,
             "graded_on": datetime.now().strftime('%a %d %b %Y %H:%M:%S %Z'),
-            "earned_points": 0,
+            "earned_points": float(results.get('earned_points', 0)) ,
+            "deduction": float(student.get('deduct', 0.0)),
             "total_points": grading_scheme.get('total_points', 0),
             "lab_grade": "0%"
         }),
@@ -770,10 +755,12 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
 
     # If there are results, update the feedback_data
     if results:
-        # Calculate earned points, total points, and lab grade
-        earned_points = results.get('earned_points', 0)
+        # Calculate earned points minus deduction and lab_grade
+        deduction = float(student.get('deduct', 0))
+        earned_points = float(results.get('earned_points', 0))
+        lab_points = earned_points - deduction
         total_points = grading_scheme.get('total_points', 0)
-        lab_grade = (earned_points / total_points) * 100 if total_points > 0 else 0
+        lab_grade = (lab_points / total_points) * 100 if total_points > 0 else 0
 
         processed_feedback = []
 
@@ -1349,12 +1336,15 @@ def aggregate_general_feedback(grade_it_paths, grading_scheme):
                 avg_points = round(sum(scores_list) / total_students, 2)
             else:
                 avg_points = 0.0
-            pass_status = "T" if avg_points >= (max_points/2) else "F"
+            if (max_points != 0):
+                passing_percentage = round((avg_points / max_points * 100), 2)
+            else:
+                passing_percentage = 0.0
             task_results.append(OrderedDict([
                 ("detail", detail),
                 ("max_points", max_points),
                 ("average_points", avg_points),
-                ("pass", pass_status)
+                ("passing_percentage", f"{passing_percentage}%"),
             ]))
         aggregated["tasks"].append(OrderedDict([
             ("task", task_name),
