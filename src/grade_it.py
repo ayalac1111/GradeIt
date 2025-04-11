@@ -746,21 +746,24 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
             "student": u_student,
             "lab_name": lab,
             "graded_on": datetime.now().strftime('%a %d %b %Y %H:%M:%S %Z'),
+            "total_points": grading_scheme.get('total_points', 0),
             "earned_points": float(results.get('earned_points', 0)) ,
             "deduction": float(student.get('deduct', 0.0)),
-            "total_points": grading_scheme.get('total_points', 0),
+            "extra_points": float(student.get('extra_points', 0.0)),
+            "adjusted_points": 0.0,
             "lab_grade": "0%"
         }),
     ])
 
     # If there are results, update the feedback_data
     if results:
-        # Calculate earned points minus deduction and lab_grade
-        deduction = float(student.get('deduct', 0))
+        # Calculate adjusted_points = earned_points + extra_points - deductions
         earned_points = float(results.get('earned_points', 0))
-        lab_points = earned_points - deduction
+        deduction = float(student.get('deduct', 0))
+        extra_points = float(student.get('extra_points', 0))
+        adjusted_points = float(earned_points + extra_points - deduction)
         total_points = grading_scheme.get('total_points', 0)
-        lab_grade = (lab_points / total_points) * 100 if total_points > 0 else 0
+        lab_grade = (adjusted_points / total_points) * 100 if total_points > 0 else 0
 
         processed_feedback = []
 
@@ -793,8 +796,8 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
                         feedback = preprocess_line_for_student(feedback, student)
 
                         line_result = {
-                            "points": score_val if correct == 1 else 0,
-                            "feedback": detail if correct == 1 else feedback
+                            "feedback": detail if correct == 1 else feedback,
+                            "points": score_val if correct == 1 else 0
                         }
                         task_feedback["results"].append(line_result)
 
@@ -803,6 +806,7 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
         # Update feedback_data with results
         feedback_data["lab"]["earned_points"] = earned_points
         feedback_data["lab"]["total_points"] = total_points
+        feedback_data["lab"]["adjusted_points"] = adjusted_points
         feedback_data["lab"]["lab_grade"] = f"{round(lab_grade, 2)}%"
         feedback_data["feedback"] = processed_feedback
 
