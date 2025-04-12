@@ -831,17 +831,30 @@ def save_student_results_to_csv(student, results, paths):
     # Check if the file already exists
     file_exists = os.path.isfile(csv_file)
 
-    # Ensure results is not None and set earned_points to 0 if results is None
-    earned_points = results['earned_points'] if results is not None and 'earned_points' in results else 0
+    # Ensure results is not None and set adjusted_points to 0 if results is None
+    # Save adjusted_points as it represents earned_points + extra_points - deductions
+    # Re‑calculate adjusted points here
+    earned = results.get("earned_points", 0.0)
+    deduction = float(student.get("deduct",      0.0))
+    extra = float(student.get("extra_points", 0.0))
+    adjusted = earned + extra - deduction
+
+    print(f"Adjusted points for {student['username']}: {adjusted}")
+
+    # DEBUG: print/log the raw values
+    logging.error(f"[DEBUG] save_student_results_to_csv – earned_points: {earned!r}")
+    logging.error(f"[DEBUG] save_student_results_to_csv – student['deduct']: {student.get('deduct')!r}")
+    logging.error(f"[DEBUG] save_student_results_to_csv – student['extra_points']: {student.get('extra_points')!r}")
+    logging.error(f"[DEBUG] save_student_results_to_csv – student['adjusted_points']: {student.get('adjusted_points')!r}")
 
     with (open(csv_file, 'a', newline='') as file):
         writer = csv.writer(file)
         if not file_exists:
             # Write header if the file doesn't exist
-            writer.writerow(['username', 'earned_points'])
+            writer.writerow(['username', 'lab_grade'])
 
         # Write the student's result
-        writer.writerow([student['username'], earned_points])
+        writer.writerow([student['username'], adjusted])
 
     logging.debug(f"Results saved to {csv_file}")
 
@@ -1135,13 +1148,16 @@ def grade_students_submission(students, paths, grading_scheme, csv_writer):
         save_student_feedback(student, total_results, grading_scheme, paths['feedback_dir'])
         # update_general_feedback(general_feedback, total_results, grading_scheme)
 
-        # Write student results to the open CSV file using DictWriter
-        earned_points = 0 if total_results is None else total_results.get('earned_points', 0)
+        # Find the student actual grade
+        earned = total_results.get('earned_points', 0.0)
+        deduction = float(student.get('deduct', 0.0))
+        extra = float(student.get('extra_points', 0.0))
+        adjusted = earned + extra - deduction
 
         # Prepare the dictionary to be written
         student_result = {
             'username': username,
-            'earned_points': earned_points
+            'earned_points': adjusted
         }
         csv_writer.writerow(student_result)
 
