@@ -497,95 +497,6 @@ def match_line(student_line, answer_key_line):
     return match is not None
 
 
-def update_general_feedback(general_feedback, student_feedback, grading_scheme):
-    """
-    Updates the general feedback structure with the results from a student's feedback.
-
-    Args:
-        general_feedback (dict): The general feedback structure.
-        student_feedback (dict): The feedback from a single student.
-        grading_scheme (dict): The grading scheme containing tasks and lines to match.
-    """
-
-    logging.info(f"Total results content: {student_feedback}")
-
-    # Since the student feedback contains score without the information of the grading scheme task, then
-    # load the grading_scheme to correlate task and scores.
-    task_earned_points = 0
-    grading_structure = grading_scheme["grading_structure"]
-
-    # Update number of students - should count all students even the ones with empty feedbacks
-    general_feedback["total_students"] += 1
-
-    # The student feedback is empty, then skip
-    if student_feedback is None:
-        general_feedback["no_submission"] = general_feedback.get("no_submission", 0) + 1
-        return
-
-    # Update the general_feedback with the new student feedback
-    for student_task_feedback in student_feedback["feedback"]:
-        logging.info(f"Adding feedback for student task: {student_task_feedback}")
-
-        task_name = student_task_feedback["task"]
-        scores = student_task_feedback["score"]
-
-        # Reset for each task
-        task_earned_points = 0
-
-        # Find or create the task feedback in general feedback
-        task_feedback = next((task for task in general_feedback["tasks"] if task["task"] == task_name), None)
-        if task_feedback is None:
-            task_feedback = {
-                "task": task_name,
-                "task_scores": [0.0] * len(scores),
-                "task_average_score": 0.0,
-            }
-            logging.info(f"Task Feedback: {task_feedback}")
-            general_feedback["tasks"].append(task_feedback)
-            logging.info(f"General feedback: {general_feedback}")
-
-        # Find the corresponding task in the grading scheme
-        for file_data in grading_structure:
-            grading_task = next((task for task in file_data["tasks"] if task["task"] == task_name), None)
-            task_earned_points = 0
-            if grading_task:
-                # Update the scores
-                for i, score in enumerate(scores):
-                    task_feedback["task_scores"][i] += score
-                    task_earned_points += score
-
-    # Calculate overall total points for all tasks
-    total_points = grading_scheme["total_points"]
-
-    # Calculate average score and rate for each task
-    for task_feedback in general_feedback["tasks"]:
-        # Calculate total earned points for the task
-        task_earned_points = sum(task_feedback["task_scores"])
-
-        # Calculate the average score for the task as a percentage of the total possible points
-        task_total_points = sum(task_feedback.get("total_possible_points", []))
-
-        # Calculate the average score for the task
-        if task_total_points > 0:
-            task_feedback["task_average_score"] = round((task_earned_points / task_total_points) * 100, 2)
-        # task_feedback["task_average_score"] = round(task_earned_points / general_feedback["total_students"] * 100, 2)
-
-    # Calculate overall average score
-    total_earned_points = sum(task_earned_points for task in general_feedback["tasks"])
-    general_feedback["average_score"] = round(
-        total_earned_points / general_feedback["total_students"] if general_feedback["total_students"] > 0 else 0, 2
-    )
-
-    # Calculate pass rate
-    student_total_score = student_feedback["earned_points"]
-
-    if student_total_score >= 0.5 * total_points:
-        general_feedback["passing_students"] += 1
-
-    general_feedback["pass_rate"] = round(
-        general_feedback["passing_students"] / general_feedback["total_students"], 2)
-
-
 def evaluate_student_data(student, student_file_data, tasks):
     """
     Evaluates the student's data against the grading scheme.
@@ -816,49 +727,6 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
     logging.info(f"Feedback saved to {feedback_filepath}.yaml")
 
 
-def save_student_results_to_csv(student, results, paths):
-    """
-    DEPRECATED
-    Save the student's results to a CSV file.
-
-    Args:
-        student (dict): A dictionary with student information.
-        results (dict): The evaluation results.
-        paths (dict):
-    """
-    csv_file = paths["grades_csv_file"]
-
-    # Check if the file already exists
-    file_exists = os.path.isfile(csv_file)
-
-    # Ensure results is not None and set adjusted_points to 0 if results is None
-    # Save adjusted_points as it represents earned_points + extra_points - deductions
-    # Re‑calculate adjusted points here
-    earned = results.get("earned_points", 0.0)
-    deduction = float(student.get("deduct",      0.0))
-    extra = float(student.get("extra_points", 0.0))
-    adjusted = earned + extra - deduction
-
-    print(f"Adjusted points for {student['username']}: {adjusted}")
-
-    # DEBUG: print/log the raw values
-    logging.error(f"[DEBUG] save_student_results_to_csv – earned_points: {earned!r}")
-    logging.error(f"[DEBUG] save_student_results_to_csv – student['deduct']: {student.get('deduct')!r}")
-    logging.error(f"[DEBUG] save_student_results_to_csv – student['extra_points']: {student.get('extra_points')!r}")
-    logging.error(f"[DEBUG] save_student_results_to_csv – student['adjusted_points']: {student.get('adjusted_points')!r}")
-
-    with (open(csv_file, 'a', newline='') as file):
-        writer = csv.writer(file)
-        if not file_exists:
-            # Write header if the file doesn't exist
-            writer.writerow(['username', 'lab_grade'])
-
-        # Write the student's result
-        writer.writerow([student['username'], adjusted])
-
-    logging.debug(f"Results saved to {csv_file}")
-
-
 def configure_globals():
     """Sets up logging and YAML configuration."""
 
@@ -1067,30 +935,6 @@ def initialize_csv_results(grade_it_paths):
     return csv_writer, csv_file_handle
 
 
-def save_all_feedback(graded_students, general_feedback, csv_file_handle, grade_it_paths):
-    """
-    Saves all student feedback, general feedback, and final grades after grading is done.
-
-    Args:
-        graded_students (list): A list of dictionaries with graded student feedback.
-        general_feedback (dict): The general feedback to be saved.
-        csv_file_handle (file object): The open CSV file handle to be closed.
-        grade_it_paths (dict): GradeMaster paths containing necessary directories and files.
-    """
-    # Close the CSV file after grading is complete
-    csv_file_handle.close()
-
-    # Add all student feedback to the general feedback
-    general_feedback['feedback'].extend(graded_students)
-
-    # Save general feedback to a file
-    feedback_file_path = grade_it_paths['general_feedback_file']
-    with open(feedback_file_path, 'w') as file:
-        yaml.dump(general_feedback, file, default_flow_style=False, allow_unicode=True)
-
-    logging.info("All feedback has been saved successfully.")
-
-
 def grade_students_submission(students, paths, grading_scheme, csv_writer):
     """
     Processes each student's submission, evaluates it, and updates feedback structures.
@@ -1146,7 +990,6 @@ def grade_students_submission(students, paths, grading_scheme, csv_writer):
 
         # Save  student feedback
         save_student_feedback(student, total_results, grading_scheme, paths['feedback_dir'])
-        # update_general_feedback(general_feedback, total_results, grading_scheme)
 
         # Find the student actual grade
         earned = total_results.get('earned_points', 0.0)
