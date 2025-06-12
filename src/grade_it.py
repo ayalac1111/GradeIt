@@ -910,6 +910,9 @@ def initialize_csv_results(grade_it_paths):
     csv.DictWriter with the fieldnames 'username' and 'earned_points', writes the header,
     and returns both the CSV writer object and the open file handle.
 
+    NEW:  Creates a missing-submission.csv file to keep students without submission or
+          submission of size 0 in a separate file.
+
     Args:
         grade_it_paths (dict): A dictionary containing paths, including the key 'grades_csv_file'.
 
@@ -917,6 +920,8 @@ def initialize_csv_results(grade_it_paths):
         tuple: A tuple containing:
             - csv_writer (csv.DictWriter): The CSV writer object for writing student results.
             - csv_file_handle (file object): The open CSV file handle.
+            - missing_csv_file
+            - missing_csv_writer
     """
 
     # Open the CSV file in write mode (will overwrite if it already exists)
@@ -932,10 +937,20 @@ def initialize_csv_results(grade_it_paths):
     # Write header to the file
     csv_writer.writeheader()
 
-    return csv_writer, csv_file_handle
+    # Prepare missing submissions CSV
+    # use the same csv_file var to build the missing‐submissions file
+    missing_csv_file = os.path.join(
+        os.path.dirname(csv_file),
+        f"missing_{os.path.basename(csv_file)}"
+    )
+    missing_csv_handle = open(missing_csv_file, 'w', newline='')
+    missing_csv_writer = csv.DictWriter(missing_csv_handle, fieldnames=fieldnames)
+    missing_csv_writer.writeheader()
+
+    return csv_writer, csv_file_handle, missing_csv_handle, missing_csv_writer
 
 
-def grade_students_submission(students, paths, grading_scheme, csv_writer):
+def grade_students_submission(students, paths, grading_scheme, csv_writer, missing_csv_writer):
     """
     Processes each student's submission, evaluates it, and updates feedback structures.
 
@@ -961,6 +976,9 @@ def grade_students_submission(students, paths, grading_scheme, csv_writer):
             "feedback": []
         }
 
+        # Track if any valid submission was found
+        submission_found = False
+
         # Iterate over all files in grading_structure
         for file_data in grading_structure:
 
@@ -971,10 +989,15 @@ def grade_students_submission(students, paths, grading_scheme, csv_writer):
             # Read the student file data
             student_file_data = read_student_files(student, file_name, paths['submissions_dir'])
 
-            # Evaluate the student's tasks in a file if data is not None
-            if student_file_data is None:
+            # Skip if file missing, None, or empty
+            if student_file_data is None or \
+                    len(student_file_data) == 0:
                 logging.info(f"No submission or empty submission for student {username} in file '{file_name}'")
-                continue  # Skip to the next file if no valid results for the current file
+                continue
+
+            # Mark that we found a valid submission
+            submission_found = True
+
 
             # Evaluate the student's tasks in a file
             file_results = evaluate_student_data(student, student_file_data, tasks)
@@ -987,6 +1010,13 @@ def grade_students_submission(students, paths, grading_scheme, csv_writer):
             total_results["total_points"] += file_results.get("total_points", 0)
             total_results["earned_points"] += file_results.get("earned_points", 0)
             total_results["feedback"].extend(file_results.get("feedback", []))
+
+        # If no valid submission was found, skip feedback and grading for this student
+        if not submission_found:
+            # Log missing student with zero grade
+            missing_csv_writer.writerow({'username': username, 'earned_points': 0.0})
+            logging.info(f"Skipping {username}: no submissions found; no feedback generated.")
+            continue
 
         # Save  student feedback
         save_student_feedback(student, total_results, grading_scheme, paths['feedback_dir'])
@@ -1007,15 +1037,26 @@ def grade_students_submission(students, paths, grading_scheme, csv_writer):
         logging.debug(f"Results saved for {username}")
 
 
-def close_csv(csv_file_handle):
+def close_csv(*files):
     """
-    Finalizes grading by closing the CSV file used for storing student results.
+    Finalizes grading by closing all CSV file used for storing student results.
 
     Args:
         csv_file_handle (file object): The open CSV file handle to be closed.
-    """
-    csv_file_handle.close()
-    logging.debug("grades.csv file closed successfully.")
+
+        Closes all provided file handles.
+
+        Args:
+            *files: Open file objects to close.
+        """
+    for f in files:
+        try:
+            f.close()
+        except Exception as e:
+            logging.warning(f"Failed to close file handle: {e}")
+
+    #csv_file_handle.close()
+    #logging.debug("grades.csv file closed successfully.")
 
 
 
@@ -1243,9 +1284,9 @@ def main():
     grade_it_paths = create_or_load_config(args.config)
     students, valid_variables = load_students(grade_it_paths)
     grading_scheme = load_grading_scheme(grade_it_paths, valid_variables)
-    csv_writer, cvs_file_handler = initialize_csv_results(grade_it_paths)
-    grade_students_submission(students, grade_it_paths, grading_scheme, csv_writer)
-    close_csv(cvs_file_handler)
+    csv_writer, cvs_file_handler, missing_csv_handle, missing_csv_writer = initialize_csv_results(grade_it_paths)
+    grade_students_submission(students, grade_it_paths, grading_scheme, csv_writer, missing_csv_writer)
+    close_csv(cvs_file_handler, missing_csv_handle)
     aggregate_general_feedback(grade_it_paths, grading_scheme)
 
 
