@@ -34,14 +34,13 @@ VALID_KEYWORDS = ["COURSE", "LAB", "PROFESSOR", "TOTAL", "FILE", "TASK", "DETAIL
 def fmt_points(value):
     """
     Convert numeric grade values to a two-decimal string for CSV and YAML output.
-
-    Args:
-        value: Numeric value or numeric string.
-
-    Returns:
-        str: Value formatted with exactly two decimal places.
     """
     return f"{float(value):.2f}"
+
+def round_points(value):
+    """Return grade values as numeric floats rounded to two decimals."""
+    return round(float(value), 2)
+
 
 def represent_ordereddict(dumper, data):
     return dumper.represent_dict(data.items())
@@ -720,16 +719,16 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
 
                         line_result = {
                             "feedback": detail if correct == 1 else feedback,
-                            "points": fmt_points(score_val if correct == 1 else 0)
+                            "points": round_points(score_val if correct == 1 else 0)
                         }
                         task_feedback["results"].append(line_result)
 
                     processed_feedback.append(task_feedback)
 
         # Update feedback_data with results
-        feedback_data["lab"]["earned_points"] = fmt_points(earned_points)
-        feedback_data["lab"]["total_points"] = fmt_points(total_points)
-        feedback_data["lab"]["adjusted_points"] = fmt_points(adjusted_points)
+        feedback_data["lab"]["earned_points"] = round_points(earned_points)
+        feedback_data["lab"]["total_points"] = round_points(total_points)
+        feedback_data["lab"]["adjusted_points"] = round_points(adjusted_points)
         feedback_data["lab"]["lab_grade"] = f"{lab_grade:.2f}%"
         feedback_data["feedback"] = processed_feedback
 
