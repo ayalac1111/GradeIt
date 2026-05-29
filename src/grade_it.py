@@ -31,6 +31,18 @@ COMMENT_IDENTIFIER = "!--"
 VALID_KEYWORDS = ["COURSE", "LAB", "PROFESSOR", "TOTAL", "FILE", "TASK", "DETAIL", "FEEDBACK"]
 
 
+def fmt_points(value):
+    """
+    Convert numeric grade values to a two-decimal string for CSV and YAML output.
+
+    Args:
+        value: Numeric value or numeric string.
+
+    Returns:
+        str: Value formatted with exactly two decimal places.
+    """
+    return f"{float(value):.2f}"
+
 def represent_ordereddict(dumper, data):
     return dumper.represent_dict(data.items())
 
@@ -658,10 +670,10 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
             "lab_name": lab,
             "graded_on": datetime.now().strftime('%a %d %b %Y %H:%M:%S %Z'),
             "total_points": grading_scheme.get('total_points', 0),
-            "earned_points": float(results.get('earned_points', 0)) ,
-            "deduction": float(student.get('deduct', 0.0)),
-            "extra_points": float(student.get('extra_points', 0.0)),
-            "adjusted_points": 0.0,
+            "earned_points": fmt_points(results.get('earned_points', 0)) ,
+            "deduction": fmt_points(student.get('deduct', 0.0)),
+            "extra_points": fmt_points(student.get('extra_points', 0.0)),
+            "adjusted_points": fmt_points(0.0),
             "lab_grade": "0%"
         }),
     ])
@@ -708,17 +720,17 @@ def save_student_feedback(student, results, grading_scheme, output_dir):
 
                         line_result = {
                             "feedback": detail if correct == 1 else feedback,
-                            "points": score_val if correct == 1 else 0
+                            "points": fmt_points(score_val if correct == 1 else 0)
                         }
                         task_feedback["results"].append(line_result)
 
                     processed_feedback.append(task_feedback)
 
         # Update feedback_data with results
-        feedback_data["lab"]["earned_points"] = earned_points
-        feedback_data["lab"]["total_points"] = total_points
-        feedback_data["lab"]["adjusted_points"] = adjusted_points
-        feedback_data["lab"]["lab_grade"] = f"{round(lab_grade, 2)}%"
+        feedback_data["lab"]["earned_points"] = fmt_points(earned_points)
+        feedback_data["lab"]["total_points"] = fmt_points(total_points)
+        feedback_data["lab"]["adjusted_points"] = fmt_points(adjusted_points)
+        feedback_data["lab"]["lab_grade"] = f"{lab_grade:.2f}%"
         feedback_data["feedback"] = processed_feedback
 
     # Save feedback as YAML
@@ -1014,7 +1026,7 @@ def grade_students_submission(students, paths, grading_scheme, csv_writer, missi
         # If no valid submission was found, skip feedback and grading for this student
         if not submission_found:
             # Log missing student with zero grade
-            missing_csv_writer.writerow({'username': username, 'earned_points': 0.0})
+            missing_csv_writer.writerow({'username': username, 'earned_points': fmt_points(0.0)})
             logging.info(f"Skipping {username}: no submissions found; no feedback generated.")
             continue
 
@@ -1030,7 +1042,7 @@ def grade_students_submission(students, paths, grading_scheme, csv_writer, missi
         # Prepare the dictionary to be written
         student_result = {
             'username': username,
-            'earned_points': adjusted
+            'earned_points': fmt_points(adjusted)
         }
         csv_writer.writerow(student_result)
 
